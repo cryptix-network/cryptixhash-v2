@@ -1,4 +1,23 @@
+// For understanding: The biggest weakness of FPGAs and ASICs is memory bandwidth and memory access time. This is especially true when low-quality boards are used, but even with high-quality boards, these limitations still exist.
+// While ASICs and FPGAs are extremely efficient at performing calculations that can be parallelized (e.g., simple mathematical operations or streaming data through an algorithm), they are more limited when it comes to complex memory operations.
+// When an algorithm requires reading and writing large amounts of data from memory (for example, by repeatedly accessing and updating large arrays or matrices), the hardware faces memory bandwidth bottlenecks. FPGAs, in particular, have less internal memory bandwidth compared to CPUs, making them slower for memory-intensive tasks, even though they might theoretically be faster than CPUs for simple computations.
+// To significantly limit or potentially block ASICs/FPGA performance, the following steps should be considered:
 
+// Implement unpredictable or dynamic calculations.
+// Branches and conditional logic.
+// Push hardware to its limits with memory-intensive or non-parallel tasks.
+// Overload or flood memory channels (large-volume memory access).
+// Prevent parallelization.
+// High latency memory accesses
+// Irregular memory access
+// Data that is not well cached.
+// Utilize dynamic memory access patterns.
+// Unpredictable algorithms
+
+//  In particular, cheaply produced hardware or hardware with outdated technology can quickly become overwhelmed. 
+
+
+// First Idea / Example: 
 
 const FINAL_C: [u8; 32] = [
     0x1A, 0xC3, 0xF5, 0xE7, 0xB1, 0x45, 0x62, 0x9B,
