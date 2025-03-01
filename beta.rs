@@ -19,6 +19,7 @@
 
 // First Idea / Example: 
 
+
 const FINAL_C: [u8; 32] = [
     0x1A, 0xC3, 0xF5, 0xE7, 0xB1, 0x45, 0x62, 0x9B,
     0xD0, 0x72, 0x87, 0x5D, 0xF4, 0x33, 0x5B, 0xE1,
@@ -69,12 +70,14 @@ const FINAL_X: [u8; 32] = [
 ];
 
 // Nonlinear transformation
-fn s_box_transform(value: u8) -> u8 {
+fn triple_s_box(value: u8) -> u8 {
     let s_box = [
         0x63, 0x7C, 0x77, 0x7B, 0xF0, 0xD7, 0xAB, 0x76, 0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
         0xAD, 0x2A, 0xAF, 0x99, 0x68, 0x28, 0xD4, 0xA1, 0xDB, 0xFC, 0xA0, 0xD3, 0xE6, 0xF6, 0xF7, 0xFE,
     ];
-    s_box[(value & 0xFF) as usize]
+    let x1 = s_box[(value & 0xFF) as usize];
+    let x2 = s_box[(x1 & 0xFF) as usize]; // Double S-Box  non-linearity
+    s_box[(x2 & 0xFF) as usize] // Triple S-Box cascade
 }
 
 pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
@@ -96,7 +99,7 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64; // 64 to 127 rounds
 
     // Memory-Hard
-    let mut memory: Vec<u8> = vec![0; 1024];  // Small test
+    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024];  // 16 MB test
 
     for _ in 0..dynamic_loops {
         for i in 0..32 {
@@ -118,8 +121,8 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
             sum2 = sum2.wrapping_add(mem_value as u16);
 
             // nonlinear transformations via S-box
-            let a_nibble = s_box_transform((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
-            let b_nibble = s_box_transform((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
+            let a_nibble = triple_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
+            let b_nibble = triple_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
 
             product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
@@ -149,6 +152,7 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
     // final hash
     CryptixHash::hash(Hash::from_bytes(result))
 }
+
 
 
 // Todo:
