@@ -161,31 +161,38 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
 
 
 
-
-use blake3::hash;  // Import BLAKE3
+use blake3::hash as blake3_hash;
+use blake2::{Blake2b, Digest};
+use sha3::{Sha3_256};
 
 #[inline]
 #[must_use]
 /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
 pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-    // First hash with nonce
+    //nonce
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
     let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
 
-    // Apply BLAKE3 hash
-    let blake3_hash = hash(hash_bytes);
-    let blake3_hash_bytes: [u8; 32] = blake3_hash.as_bytes().try_into().expect("BLAKE3 output length mismatch");
-
-    // Apply SHA3-256 hash
+    // SHA3-256
     let mut sha3_hasher = Sha3_256::new();
-    sha3_hasher.update(blake3_hash_bytes);
+    sha3_hasher.update(hash_bytes);
     let sha3_hash = sha3_hasher.finalize();
     let sha3_hash_bytes: [u8; 32] = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
 
-    // Pass to heavy_hash
-    let final_hash = self.matrix.heavy_hash(cryptix_hashes::Hash::from(sha3_hash_bytes));
+    // BLAKE3
+    let blake3_hash = blake3_hash(sha3_hash_bytes);
+    let blake3_hash_bytes: [u8; 32] = blake3_hash.as_bytes().try_into().expect("BLAKE3 output length mismatch");
 
-    // Step 5: Return final result
+    // BLAKE2b
+    let mut blake2b_hasher = Blake2b::new();
+    blake2b_hasher.update(blake3_hash_bytes);
+    let blake2b_hash = blake2b_hasher.finalize();
+    let blake2b_hash_bytes: [u8; 64] = blake2b_hash.as_slice().try_into().expect("BLAKE2b output length mismatch");
+
+    // heavy_hash
+    let final_hash = self.matrix.heavy_hash(cryptix_hashes::Hash::from(blake2b_hash_bytes));
+
+    // Final
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
