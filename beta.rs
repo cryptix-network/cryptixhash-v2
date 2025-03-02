@@ -124,11 +124,11 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         arr
     };
 
-    // Dynamically calculate the number of rounds (between 64 and 127)
+    // Dynamically calculate the number of rounds (between 64 and 127) ### Set the dynamic number of rounds to a maximum (instead of 64-127, rather 512+).
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
     // Memory load
-    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024]; // 32MB TEST
+    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024]; // 32MB TEST  ### Change to multiple GB so that the FPGA has to constantly access slow external memory.
 
     // Initialize the memory with a dynamic data source
     for i in 0..memory.len() {
@@ -201,6 +201,16 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // More irreversible mixing
 // Dynamic values ​​for the transformations based on previous values
 
+
+// Randomly overwrite memory with new values
+// memory[rand_index] = memory[rand_index].wrapping_mul(13).wrapping_add(7);
+
+// Add additional multiplications, S-boxes and non-linear operations.
+// Change memory accesses to non-sequential (randomized) jumps to break cache optimizations.
+// If the FPGA has multiple cores, start multiple simultaneous calculations using threads or SIMD.
+
+// A few "if" branches?
+
 // Idea:
 // Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
 // Add Race Conditions / High Latence Ways for Bitstreams
@@ -210,9 +220,10 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Make memory accesses non-skippable
 
 // Info:
-// 224 MB on-chip RAM
+// 224 MB on-chip RAM (its ddr3 ram)
 // 8 GB !!! HBM2 with 420 GB/s
 // Dual-Core Cortex-A9 !!!
+// From 2018 !!!
 ---------------
 
 
