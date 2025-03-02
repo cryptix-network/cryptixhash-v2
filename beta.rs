@@ -254,23 +254,32 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
     let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
 
-    // Apply SHA3-256
+    //  SHA3-256 Fixed
     let mut sha3_hasher = Sha3_256::new();
     sha3_hasher.update(hash_bytes);
     let sha3_hash = sha3_hasher.finalize();
     let sha3_hash_bytes: [u8; 32] = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
 
-    // First BLAKE3
+    // Blake 3 Fixed
     let blake3_first = blake3_hash(sha3_hash_bytes);
     let blake3_first_bytes: [u8; 32] = blake3_first.as_bytes().try_into().expect("BLAKE3 output length mismatch");
 
-    // Second BLAKE3
-    let blake3_second = blake3_hash(blake3_first_bytes);
-    let blake3_second_bytes: [u8; 32] = blake3_second.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+    // Additional BLAKE3 runs based on the first BLAKE3 hash (between 1 and 5)
+    // Use first 4 bytes of the first BLAKE3 hash to determine
+    let num_rounds = (u32::from_le_bytes(blake3_first_bytes[0..4].try_into().expect("BLAKE3 slice error")) % 5) + 1;
 
-    // Pass to heavy_hash
-    let final_hash = self.matrix.heavy_hash(Hash::from(blake3_second_bytes));
+    let mut blake3_hash = blake3_first_bytes;
 
+    // 4. Run dyn BLAKE3 1-5 
+    for _ in 0..num_rounds {
+        let blake3_result = blake3_hash(blake3_hash);
+        blake3_hash = blake3_result.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+    }
+
+    //  to heavy_hash
+    let final_hash = self.matrix.heavy_hash(Hash::from(blake3_hash));
+
+    // Convert to Uint256
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
