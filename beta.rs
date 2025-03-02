@@ -20,6 +20,7 @@
 // First Idea / Example: 
 
 
+
 const FINAL_C: [u8; 32] = [
     0x1A, 0xC3, 0xF5, 0xE7, 0xB1, 0x45, 0x62, 0x9B,
     0xD0, 0x72, 0x87, 0x5D, 0xF4, 0x33, 0x5B, 0xE1,
@@ -69,17 +70,39 @@ const FINAL_X: [u8; 32] = [
     0xD2, 0x7F, 0x8C, 0x55, 0xAD, 0x8C, 0x60, 0x8F,
 ];
 
-// Nonlinear transformation
-fn triple_s_box(value: u8) -> u8 {
+// S-Boxes
+fn s_box_1(value: u8) -> u8 {
     let s_box = [
         0x63, 0x7C, 0x77, 0x7B, 0xF0, 0xD7, 0xAB, 0x76, 0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
         0xAD, 0x2A, 0xAF, 0x99, 0x68, 0x28, 0xD4, 0xA1, 0xDB, 0xFC, 0xA0, 0xD3, 0xE6, 0xF6, 0xF7, 0xFE,
     ];
-    let x1 = s_box[(value & 0xFF) as usize];
-    let x2 = s_box[(x1 & 0xFF) as usize]; // Double S-Box  non-linearity
-    s_box[(x2 & 0xFF) as usize] // Triple S-Box cascade
+    s_box[(value & 0xFF) as usize]
 }
 
+fn s_box_2(value: u8) -> u8 {
+    let s_box = [
+        0x37, 0x59, 0x9B, 0xA7, 0x5E, 0x2B, 0xB1, 0x8D, 0xF1, 0xC7, 0xBB, 0x4A, 0xB5, 0x0F, 0xD2, 0x63,
+        0x56, 0x7A, 0x3C, 0x31, 0x79, 0x41, 0xD9, 0xC1, 0xF3, 0x8E, 0x62, 0xC9, 0xD3, 0x6E, 0x45, 0x6A,
+    ];
+    s_box[(value & 0xFF) as usize]
+}
+
+fn s_box_3(value: u8) -> u8 {
+    let s_box = [
+        0x1F, 0xA9, 0xCB, 0xE8, 0xD5, 0x91, 0x60, 0x8C, 0xFA, 0x64, 0xB7, 0x53, 0x2D, 0x74, 0x56, 0x20,
+        0xF6, 0x4E, 0x81, 0x95, 0xC0, 0x76, 0x83, 0x4C, 0xBE, 0x7B, 0x6B, 0xD3, 0x38, 0x45, 0xB3, 0x92,
+    ];
+    s_box[(value & 0xFF) as usize]
+}
+
+// S-box layers
+fn multi_layer_s_box(value: u8) -> u8 {
+    let x1 = s_box_1(value);
+    let x2 = s_box_2(x1);
+    s_box_3(x2)
+}
+
+// Nonlinear transformation
 pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
     // Hash to nibbles
     let nibbles: [u8; 64] = {
@@ -106,7 +129,7 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
             let mut sum1 = 0u16;
             let mut sum2 = 0u16;
 
-            // Multidimensional access to the nibbles with dynamic memory influence
+            // Multidimensional dynamic memory influence
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
 
@@ -120,9 +143,9 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
             sum1 = sum1.wrapping_add(mem_value as u16);
             sum2 = sum2.wrapping_add(mem_value as u16);
 
-            // nonlinear transformations via S-box
-            let a_nibble = triple_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
-            let b_nibble = triple_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
+            // nonlinear transformations via multi_layer_s_box
+            let a_nibble = multi_layer_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
+            let b_nibble = multi_layer_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
 
             product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
