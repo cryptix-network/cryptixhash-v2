@@ -127,8 +127,8 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     // Dynamically calculate the number of rounds (between 64 and 127)
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
-    // Memory load: 16 MB
-    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024]; // 16MB of memory
+    // Memory load
+    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024]; // 32MB TEST
 
     // Initialize the memory with a dynamic data source
     for i in 0..memory.len() {
