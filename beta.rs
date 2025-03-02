@@ -210,6 +210,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Make memory accesses non-skippable
 
 // Info:
+// 224 MB on-chip RAM
 // 8 GB !!! HBM2 with 420 GB/s
 // Dual-Core Cortex-A9 !!!
 ---------------
