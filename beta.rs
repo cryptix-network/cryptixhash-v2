@@ -270,7 +270,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 
     let mut blake3_hash = blake3_first_bytes;
 
-    // 4. Run dyn BLAKE3 1-5 
+    // Run dyn BLAKE3 1-5 
     for _ in 0..num_rounds {
         let blake3_result = blake3_hash(blake3_hash);
         blake3_hash = blake3_result.as_bytes().try_into().expect("BLAKE3 output length mismatch");
@@ -286,4 +286,5 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 
 
 // Idea:
-// - Maybee Integrate a illiterations with scrypt, Argon2???
+// Maybee Integrate a illiterations with scrypt, Argon2???
+// Add a MiniPOW for validate the Nonces? 
