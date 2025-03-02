@@ -205,6 +205,9 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
 // Add Race Conditions / High Latence Ways for Bitstreams
 
+// Fix:
+// Exclude Ram out of bound
+// Make memory accesses non-skippable
 ---------------
 
 
