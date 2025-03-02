@@ -199,10 +199,11 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // More dynamic jumps based on hash values.
 // Every operation should depend on the entire previous state.
 // More irreversible mixing
+// Dynamic values ​​for the transformations based on previous values
 
 // Idea:
-// - Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
-
+// Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
+// Add Race Conditions / High Latence Ways for Bitstreams
 
 ---------------
 
