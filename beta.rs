@@ -179,7 +179,15 @@ pub fn heavy_hash(&self, block_hash: Hash) -> Hash {
 
 
 // Todo:
-// - Functions to overload memory bandwidth
+
+// Add more 32-bit and 64-bit multiplications.
+// Add dynamic modulo operations.
+// More branches (if conditions based on hash values).
+// More dynamic jumps based on hash values.
+// Every operation should depend on the entire previous state.
+// More irreversible mixing
+
+// Idea:
 // - Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
 
 
@@ -221,5 +229,5 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 
 
 
-// Todo:
+// Idea:
 // - Maybee Integrate a illiterations with scrypt, Argon2???
