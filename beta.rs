@@ -224,6 +224,20 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // 8 GB !!! HBM2 with 420 GB/s
 // Dual-Core Cortex-A9 !!!
 // From 2018 !!!
+
+
+// Memory fragmentation and random accesses: Frequent writing and reading in random patterns on the external HBM2 memory would overstretch the memory access bandwidth, as HBM2 offers very fast bandwidths of 420 GB/s but is not optimally used in random access patterns. This would lead to an overload of the memory access mechanisms.
+
+// RAM consumption: Increasing the required memory to several gigabytes (based on dynamic memory requirements, as in the code with the 32 MB base and the ability to scale to several GB) can overload the on-chip memory (224 MB DDR3). This could force the processor to constantly access the slow external memory (HBM2), causing significant delays and performance bottlenecks.
+
+// Continuous high-bandwidth memory access: If the algorithm is constantly sending large amounts of data back and forth between the 8 GB HBM2 and the processor, especially with intensive non-sequential access patterns, this can put extreme strain on the 420 GB/s bandwidth. Even though this bandwidth is high, it could be overwhelmed by the CPU during extreme access patterns and high data usage.
+
+// Chaining several cryptographic hash functions: If you chain several cryptographic functions together (e.g. SHA3-256, then BLAKE3, then Heavy Hash) without relieving the processor, the Cortex-A9 can be heavily loaded by the constant calculations and hashing processes. In addition, a stronger nesting of cryptography algorithms could further reduce performance.
+
+// Constantly high data rate between the cores and external memory: If each individual processor core manages large amounts of data via the external memory buses, and there is also constant interprocessor communication, the communication between the cores and the external hardware can severely affect the data transfer bandwidth and the computing power. This leads to the processor and the system as a whole being overwhelmed.
+
+
+
 ---------------
 
 
