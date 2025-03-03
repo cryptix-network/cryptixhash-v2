@@ -264,6 +264,15 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 
 // ###### v2.1 Latest
 
+// Todo:
+// More Bitmanipulations
+// More Random Accesses
+// Think about worst case optimizations 
+// Control Flow Dependency
+// Serial calculations
+// Cache-Busting
+
+
 
 #[inline]
 #[must_use]
@@ -336,13 +345,6 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 }
 
 
-// Todo:
-// More Bitmanipulations
-// More Random Accesses
-// Think about worst case optimizations 
-// Control Flow Dependency
-// Serial calculations
-// Cache-Busting
 
 // ---------------------------------------------
 
