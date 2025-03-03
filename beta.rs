@@ -21,6 +21,7 @@
 
 
 
+// Constants for the final transformations 
 const FINAL_C: [u8; 32] = [
     0x1A, 0xC3, 0xF5, 0xE7, 0xB1, 0x45, 0x62, 0x9B,
     0xD0, 0x72, 0x87, 0x5D, 0xF4, 0x33, 0x5B, 0xE1,
@@ -95,14 +96,24 @@ fn s_box_3(value: u8) -> u8 {
     s_box[(value & 0xFF) as usize]
 }
 
-// Multi-layer S-Box
+fn s_box_4(value: u8) -> u8 {
+    let s_box = [
+        0x2B, 0x3A, 0x9E, 0x84, 0xA3, 0xF4, 0x74, 0xD5, 0x7F, 0xD2, 0x67, 0x92, 0x16, 0x55, 0xFB, 0x2F,
+        0x8D, 0x39, 0x51, 0xAD, 0x8A, 0xF1, 0x69, 0x68, 0x29, 0x11, 0x64, 0x9C, 0x99, 0xC8, 0x54, 0x46,
+    ];
+    s_box[(value & 0xFF) as usize]
+}
+
+// Multi-layer S-Box 
 fn multi_layer_s_box(value: u8) -> u8 {
     let x1 = s_box_1(value);
     let x2 = s_box_2(x1);
-    s_box_3(x2)
+    let x3 = s_box_3(x2);
+    let x4 = s_box_4(x3);
+    s_box_3(x4)
 }
 
-// Dynamic S-Box generation based on the block hash
+// Dynamic S-Box based on the block hash
 fn generate_dynamic_s_box(block_hash: &[u8]) -> [u8; 256] {
     let mut s_box = [0u8; 256];
     for i in 0..256 {
@@ -111,7 +122,7 @@ fn generate_dynamic_s_box(block_hash: &[u8]) -> [u8; 256] {
     s_box
 }
 
-// The hash function itself with memory usage and dynamic rounds
+// The hash function with memory usage and dynamic rounds
 pub fn heavy_hash(block_hash: Hash) -> Hash {
     // Convert the hash into nibbles
     let nibbles: [u8; 64] = {
@@ -124,54 +135,57 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         arr
     };
 
-    // Dynamically calculate the number of rounds (between 64 and 127) ### Set the dynamic number of rounds to a maximum (instead of 64-127, rather 512+).
+    // Dynamically calculate the number of rounds
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
-    // Memory load
-    let mut memory: Vec<u8> = vec![0; 16 * 1024 * 1024]; // 32MB TEST  ### Change to multiple GB so that the FPGA has to constantly access slow external memory.
+     // Dynamically calculate the number of rounds (increase to max 512 rounds)
+     // let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 256 + 256;
 
-    // Initialize the memory with a dynamic data source
+    // Memory hard (using larger memory to simulate memory usage)
+    let mut memory: Vec<u8> = vec![0; 32 * 1024 * 1024]; // 64MB  ### Change to multiple GB for constantly access slow external memory.
+
+
+    // Initialize the memory based on hash
     for i in 0..memory.len() {
         memory[i] = (block_hash.as_bytes()[i % block_hash.len()] ^ (i as u8)) % 256;
     }
 
-    // Calculate the hash for the dynamic rounds
+    // Main loop for dynamic rounds
     let mut product = [0u8; 32];
 
-    // Main loop for the calculations
     for _ in 0..dynamic_loops {
         for i in 0..32 {
             let mut sum1 = 0u16;
             let mut sum2 = 0u16;
 
-            // Multi-dimensional interactions with memory and nibbles
+            // Interactions with memory and nibbles
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
                 sum1 += (self.0[2 * i][j] as u16).wrapping_mul(elem);
                 sum2 += (self.0[2 * i + 1][j] as u16).wrapping_mul(elem);
             }
 
-            // Complex interaction with dynamic memory
+            // Modify memory dynamically
             let mem_value = memory[(i + 5) % memory.len()];
             sum1 = sum1.wrapping_add(mem_value as u16);
             sum2 = sum2.wrapping_add(mem_value as u16);
 
-            // Non-linear transformations
+            // Apply non-linear transformations
             let a_nibble = multi_layer_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
             let b_nibble = multi_layer_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
 
             product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
 
-        // Dynamically modify memory
+        // Modify memory
         let new_memory_value = (block_hash.as_bytes()[0] ^ block_hash.as_bytes()[1]) & 0xFF;
         memory[(block_hash.as_bytes()[0] as usize) % memory.len()] = new_memory_value;
     }
 
-    // Final XOR operation with the block hash
+    // Final XOR operation
     product.iter_mut().zip(block_hash.as_bytes()).for_each(|(p, h)| *p ^= h);
 
-    // Final transformations
+    // Apply final transformations
     let transformations = [
         &FINAL_C, &FINAL_R, &FINAL_Y, &FINAL_P,
         &FINAL_T, &FINAL_I, &FINAL_X,
@@ -184,11 +198,9 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         }
     }
 
-    // Final hash
+    // Return the final hash
     CryptixHash::hash(Hash::from_bytes(result))
 }
-
-
 
 
 // Todo:
