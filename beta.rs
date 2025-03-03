@@ -202,6 +202,9 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Dynamic values ​​for the transformations based on previous values
 
 
+// More SIMD-friendly operations (e.g. AVX-512 for CPUs or CUDA for GPUs). To support the hardware and instead of slowing down ASICs and FPGAs, improve the hardware that is allowed.
+
+
 // Randomly overwrite memory with new values
 // memory[rand_index] = memory[rand_index].wrapping_mul(13).wrapping_add(7);
 
@@ -292,7 +295,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 // Combination of algorithms
 // More iterations
 // Dynamic number of iterations
-// More non-linear behavior
+// More non-linear behavior / non-deterministic pipelines
 
 // Idea:
 // Maybee Integrate a illiterations with scrypt, Argon2???
