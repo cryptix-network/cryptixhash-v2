@@ -274,6 +274,13 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Incorporate random cache hits and misses
 
 
+    // JIT 
+    // Yes, we know we could use JIT, but we don't need to, you are not competent enough to develop an efficient FPGA for this hash anyway.
+    // if let Some(jit_result) = try_jit_optimization() {
+    //     return Uint256::from_le_bytes(jit_result.as_bytes());
+    // }
+
+
 
 #[inline]
 #[must_use]
