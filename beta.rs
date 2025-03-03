@@ -259,70 +259,10 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Constantly high data rate between the cores and external memory: If each individual processor core manages large amounts of data via the external memory buses, and there is also constant interprocessor communication, the communication between the cores and the external hardware can severely affect the data transfer bandwidth and the computing power. This leads to the processor and the system as a whole being overwhelmed.
 
 
-
----------------
-
+// ---------------------------------------------
 
 
-use blake3::hash as blake3_hash;
-use sha3::{Digest, Sha3_256};
-use cryptix_hashes::Hash;
-use blake3::Hasher as Blake3Hasher;
-
-#[inline]
-#[must_use]
-/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
-pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-    let hash = self.hasher.clone().finalize_with_nonce(nonce);
-    let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
-
-    //  SHA3-256 Fixed
-    let mut sha3_hasher = Sha3_256::new();
-    sha3_hasher.update(hash_bytes);
-    let sha3_hash = sha3_hasher.finalize();
-    let sha3_hash_bytes: [u8; 32] = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
-
-    // Blake 3 Fixed
-    let blake3_first = blake3_hash(sha3_hash_bytes);
-    let blake3_first_bytes: [u8; 32] = blake3_first.as_bytes().try_into().expect("BLAKE3 output length mismatch");
-
-    // Additional BLAKE3 runs based on the first BLAKE3 hash (1-3)
-    let num_b3_rounds = (u32::from_le_bytes(blake3_first_bytes[0..4].try_into().expect("BLAKE3 slice error")) % 3) + 1;
-
-    let mut blake3_hash = blake3_first_bytes;
-    for _ in 0..num_b3_rounds {
-        let blake3_result = blake3_hash(blake3_hash);
-        blake3_hash = blake3_result.as_bytes().try_into().expect("BLAKE3 output length mismatch");
-    }
-
-    // Additional SHA3-256 rounds based on the same BLAKE3 result (1-3)
-    let num_sha3_rounds = (u32::from_le_bytes(blake3_hash[0..4].try_into().expect("BLAKE3 slice error")) % 3) + 1;
-    let mut sha3_hash = blake3_hash;
-    for _ in 0..num_sha3_rounds {
-        let mut sha3_hasher = Sha3_256::new();
-        sha3_hasher.update(sha3_hash);
-        sha3_hash = sha3_hasher.finalize().as_slice().try_into().expect("SHA-3 output length mismatch");
-    }
-
-    //  Pass to heavy_hash
-    let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
-
-    // Convert to Uint256
-    Uint256::from_le_bytes(final_hash.as_bytes())
-}
-
-
-// Combination of algorithms
-// More iterations
-// Dynamic number of iterations
-// More non-linear behavior / non-deterministic pipelines
-
-// Idea:
-// Maybee Integrate a illiterations with scrypt, Argon2???
-// Add a MiniPOW for validate the Nonces? 
-
-
-// ###### v2.1
+// ###### v2.1 Latest
 
 
 #[inline]
@@ -403,3 +343,68 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 // Control Flow Dependency
 // Serial calculations
 // Cache-Busting
+
+// ---------------------------------------------
+
+// ##### V 2.0 Backup
+
+
+
+use blake3::hash as blake3_hash;
+use sha3::{Digest, Sha3_256};
+use cryptix_hashes::Hash;
+use blake3::Hasher as Blake3Hasher;
+
+#[inline]
+#[must_use]
+/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+    let hash = self.hasher.clone().finalize_with_nonce(nonce);
+    let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
+
+    //  SHA3-256 Fixed
+    let mut sha3_hasher = Sha3_256::new();
+    sha3_hasher.update(hash_bytes);
+    let sha3_hash = sha3_hasher.finalize();
+    let sha3_hash_bytes: [u8; 32] = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
+
+    // Blake 3 Fixed
+    let blake3_first = blake3_hash(sha3_hash_bytes);
+    let blake3_first_bytes: [u8; 32] = blake3_first.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+
+    // Additional BLAKE3 runs based on the first BLAKE3 hash (1-3)
+    let num_b3_rounds = (u32::from_le_bytes(blake3_first_bytes[0..4].try_into().expect("BLAKE3 slice error")) % 3) + 1;
+
+    let mut blake3_hash = blake3_first_bytes;
+    for _ in 0..num_b3_rounds {
+        let blake3_result = blake3_hash(blake3_hash);
+        blake3_hash = blake3_result.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+    }
+
+    // Additional SHA3-256 rounds based on the same BLAKE3 result (1-3)
+    let num_sha3_rounds = (u32::from_le_bytes(blake3_hash[0..4].try_into().expect("BLAKE3 slice error")) % 3) + 1;
+    let mut sha3_hash = blake3_hash;
+    for _ in 0..num_sha3_rounds {
+        let mut sha3_hasher = Sha3_256::new();
+        sha3_hasher.update(sha3_hash);
+        sha3_hash = sha3_hasher.finalize().as_slice().try_into().expect("SHA-3 output length mismatch");
+    }
+
+    //  Pass to heavy_hash
+    let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
+
+    // Convert to Uint256
+    Uint256::from_le_bytes(final_hash.as_bytes())
+}
+
+
+// Combination of algorithms
+// More iterations
+// Dynamic number of iterations
+// More non-linear behavior / non-deterministic pipelines
+
+// Idea:
+// Maybee Integrate a illiterations with scrypt, Argon2???
+// Add a MiniPOW for validate the Nonces? 
+
+
