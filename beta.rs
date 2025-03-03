@@ -379,11 +379,14 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
         }
     }
 
-    // Memory copies to force inefficient FPGA memory access
+    // Random memory accesses → HBM can no longer stream efficiently
     let mut temp_buf = [0u8; 64];
-    temp_buf[..32].copy_from_slice(&sha3_hash);
-    temp_buf[32..].copy_from_slice(&blake3_hash);
+    for i in 0..64 {
+        let rand_index = (sha3_hash[i % 32] as usize + blake3_hash[(i + 5) % 32] as usize) % 64;
+        temp_buf[rand_index] ^= sha3_hash[i % 32] ^ blake3_hash[(i + 7) % 32];
+    }
     let _ = Sha3_256::digest(&temp_buf);
+
 
     // Final Heavy Hash
     let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
