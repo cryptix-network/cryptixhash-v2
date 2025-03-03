@@ -289,7 +289,10 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
-
+// Combination of algorithms
+// More iterations
+// Dynamic number of iterations
+// More non-linear behavior
 
 // Idea:
 // Maybee Integrate a illiterations with scrypt, Argon2???
