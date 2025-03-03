@@ -219,7 +219,11 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Idea:
 // Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
 // Add Race Conditions / High Latence Ways for Bitstreams
+
 // Algorithmic modification every X blocks?
+
+// if block_height % 10000 == 0:
+//   CURRENT_ALGORITHM = upgraded_algorithm()
 
 // Fix:
 // Exclude Ram out of bound
