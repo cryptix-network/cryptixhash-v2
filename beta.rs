@@ -203,6 +203,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Add Churn-Elements 
 
 
+
 // More SIMD-friendly operations (e.g. AVX-512 for CPUs or CUDA for GPUs). To support the hardware and instead of slowing down ASICs and FPGAs, improve the hardware that is allowed.
 
 
@@ -218,6 +219,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Idea:
 // Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
 // Add Race Conditions / High Latence Ways for Bitstreams
+// Algorithmic modification every X blocks?
 
 // Fix:
 // Exclude Ram out of bound
