@@ -322,7 +322,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 // Add a MiniPOW for validate the Nonces? 
 
 
-// ###### v1.1
+// ###### v2.1
 
 
 #[inline]
@@ -395,3 +395,11 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
+
+// Todo:
+// More Bitmanipulations
+// More Random Accesses
+// Think about worst case optimizations 
+// Control Flow Dependency
+// Serial calculations
+// Cache-Busting
