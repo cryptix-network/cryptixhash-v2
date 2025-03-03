@@ -200,6 +200,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Every operation should depend on the entire previous state.
 // More irreversible mixing
 // Dynamic values ​​for the transformations based on previous values
+// Add Churn-Elements 
 
 
 // More SIMD-friendly operations (e.g. AVX-512 for CPUs or CUDA for GPUs). To support the hardware and instead of slowing down ASICs and FPGAs, improve the hardware that is allowed.
