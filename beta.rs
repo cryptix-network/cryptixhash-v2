@@ -311,6 +311,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
+
 // Combination of algorithms
 // More iterations
 // Dynamic number of iterations
@@ -319,3 +320,75 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 // Idea:
 // Maybee Integrate a illiterations with scrypt, Argon2???
 // Add a MiniPOW for validate the Nonces? 
+
+
+// ###### v1.1
+
+
+#[inline]
+#[must_use]
+/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+    let hash = self.hasher.clone().finalize_with_nonce(nonce);
+    let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
+
+    // Initial SHA3-256 Hash
+    let mut sha3_hasher = Sha3_256::new();
+    sha3_hasher.update(hash_bytes);
+    let mut sha3_hash = sha3_hasher.finalize();
+    let mut sha3_hash_bytes: [u8; 32] = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
+
+    // Bit manipulations based on NONCE
+    for i in 0..32 {
+        sha3_hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
+    }
+
+    // First BLAKE3 Hash
+    let blake3_first = blake3_hash(sha3_hash_bytes);
+    let mut blake3_first_bytes: [u8; 32] = blake3_first.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+
+    // Dynamic number of BLAKE3 rounds (2-4) based on hash values
+    let num_b3_rounds = ((u32::from_le_bytes(blake3_first_bytes[4..8].try_into().expect("BLAKE3 slice error")) % 3) + 2) as usize;
+    
+    let mut blake3_hash = blake3_first_bytes;
+    for _ in 0..num_b3_rounds {
+        let blake3_result = blake3_hash(blake3_hash);
+        blake3_hash = blake3_result.as_bytes().try_into().expect("BLAKE3 output length mismatch");
+
+        // Byte swaps based on hash values
+        let swap_index_1 = (blake3_hash[0] as usize) % 32;
+        let swap_index_2 = (blake3_hash[4] as usize) % 32;
+        let swap_index_3 = (blake3_hash[8] as usize) % 32;
+        let swap_index_4 = (blake3_hash[12] as usize) % 32;
+        blake3_hash.swap(swap_index_1, swap_index_2);
+        blake3_hash.swap(swap_index_3, swap_index_4);
+    }
+
+    // Dynamic SHA3-256 based on BLAKE3 output
+    let num_sha3_rounds = ((u32::from_le_bytes(blake3_hash[8..12].try_into().expect("BLAKE3 slice error")) % 3) + 2) as usize;
+    
+    let mut sha3_hash = blake3_hash;
+    for _ in 0..num_sha3_rounds {
+        let mut sha3_hasher = Sha3_256::new();
+        sha3_hasher.update(sha3_hash);
+        sha3_hash = sha3_hasher.finalize().as_slice().try_into().expect("SHA-3 output length mismatch");
+
+        // Additional bit manipulations to disrupt optimization
+        for i in (0..32).step_by(4) {
+            sha3_hash[i] ^= sha3_hash[i + 1];
+        }
+    }
+
+    // Memory copies to force inefficient FPGA memory access
+    let mut temp_buf = [0u8; 64];
+    temp_buf[..32].copy_from_slice(&sha3_hash);
+    temp_buf[32..].copy_from_slice(&blake3_hash);
+    let _ = Sha3_256::digest(&temp_buf);
+
+    // Final Heavy Hash
+    let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
+
+    // Convert to Uint256
+    Uint256::from_le_bytes(final_hash.as_bytes())
+}
+
