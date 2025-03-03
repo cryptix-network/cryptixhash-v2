@@ -271,6 +271,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 // Control Flow Dependency
 // Serial calculations
 // Cache-Busting
+// Incorporate random cache hits and misses
 
 
 
