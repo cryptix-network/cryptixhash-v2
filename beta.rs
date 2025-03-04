@@ -32,7 +32,7 @@
 // Include the Hash-DLL with flow obfuscation and code obfuscation (signed?) ### v3 Hash
 
 // if block_height % 10000 == 0:
-//   CURRENT_ALGORITHM = upgraded_algorithm()
+//   CURRENT_ALGORITHM = upgraded_algorithm()  ### v3 Hash
 
 
 //  dynamic S-Box with mixing
