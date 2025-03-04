@@ -35,6 +35,19 @@
 //   CURRENT_ALGORITHM = upgraded_algorithm()
 
 
+//  dynamic S-Box with mixing
+// fn dynamic_s_box_with_mixing(block_hash: &[u8]) -> [u8; 256] {
+//   let mut s_box = [0u8; 256];
+//    let mut mix_value = 0u8;
+//    for i in 0..256 {
+        // Mix
+//       mix_value = (block_hash[i % block_hash.len()] ^ i as u8) + mix_value;
+//       s_box[i] = mix_value.rotate_left(3); // Rotation ?
+//   }
+//    s_box
+//  }
+
+
 
 
 // Constants for the final transformations 
@@ -119,6 +132,8 @@ fn s_box_4(value: u8) -> u8 {
     ];
     s_box[(value & 0xFF) as usize]
 }
+
+
 
 // Multi-layer S-Box 
 fn multi_layer_s_box(value: u8) -> u8 {
