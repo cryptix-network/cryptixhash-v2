@@ -1,23 +1,39 @@
-// For understanding: The biggest weakness of FPGAs and ASICs is memory bandwidth and memory access time. This is especially true when low-quality boards are used, but even with high-quality boards, these limitations still exist.
-// While ASICs and FPGAs are extremely efficient at performing calculations that can be parallelized (e.g., simple mathematical operations or streaming data through an algorithm), they are more limited when it comes to complex memory operations.
-// When an algorithm requires reading and writing large amounts of data from memory (for example, by repeatedly accessing and updating large arrays or matrices), the hardware faces memory bandwidth bottlenecks. FPGAs, in particular, have less internal memory bandwidth compared to CPUs, making them slower for memory-intensive tasks, even though they might theoretically be faster than CPUs for simple computations.
-// To significantly limit or potentially block ASICs/FPGA performance, the following steps should be considered:
-
-// Implement unpredictable or dynamic calculations.
-// Branches and conditional logic.
-// Push hardware to its limits with memory-intensive or non-parallel tasks.
-// Overload or flood memory channels (large-volume memory access).
-// Prevent parallelization.
-// High latency memory accesses
-// Irregular memory access
-// Data that is not well cached.
-// Utilize dynamic memory access patterns.
-// Unpredictable algorithms
-
-//  In particular, cheaply produced hardware or hardware with outdated technology can quickly become overwhelmed. 
 
 
-// First Idea / Example: 
+// ### Matrix.rs 
+// ###### v2.0
+
+
+// Todo:
+
+// Add more 32-bit and 64-bit multiplications.
+// Add dynamic modulo operations.
+// More branches (if conditions based on hash values).
+// More dynamic jumps based on hash values.
+// Every operation should depend on the entire previous state.
+// More irreversible mixing
+// Change memory accesses to non-sequential (randomized) jumps to break cache optimizations.
+// Dynamic values ​​for the transformations based on previous values
+// Add Churn-Elements 
+// A few "if" branches?
+
+// Randomly overwrite memory with new values
+// memory[rand_index] = memory[rand_index].wrapping_mul(13).wrapping_add(7);
+
+// Add additional multiplications, S-boxes and non-linear operations.
+
+// Improvements in error handling and code quality
+
+// Fix:
+// Exclude Ram out of bound
+// Make memory accesses non-skippable
+
+// Idea:
+// Include the Hash-DLL with flow obfuscation and code obfuscation (signed?) ### v3 Hash
+
+// if block_height % 10000 == 0:
+//   CURRENT_ALGORITHM = upgraded_algorithm()
+
 
 
 
@@ -142,7 +158,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
      // let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 256 + 256;
 
     // Memory hard (using larger memory to simulate memory usage)
-    let mut memory: Vec<u8> = vec![0; 32 * 1024 * 1024]; // 64MB  ### Change to multiple GB for constantly access slow external memory.
+    let mut memory: Vec<u8> = vec![0; 32 * 1024 * 1024]; // 64MB  ### Change to multiple GB for constantly access slow external memory. 
 
 
     // Initialize the memory based on hash
@@ -203,66 +219,10 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 }
 
 
-// Todo:
-
-// Add more 32-bit and 64-bit multiplications.
-// Add dynamic modulo operations.
-// More branches (if conditions based on hash values).
-// More dynamic jumps based on hash values.
-// Every operation should depend on the entire previous state.
-// More irreversible mixing
-// Dynamic values ​​for the transformations based on previous values
-// Add Churn-Elements 
-
-
-
-// More SIMD-friendly operations (e.g. AVX-512 for CPUs or CUDA for GPUs). To support the hardware and instead of slowing down ASICs and FPGAs, improve the hardware that is allowed.
-
-
-// Randomly overwrite memory with new values
-// memory[rand_index] = memory[rand_index].wrapping_mul(13).wrapping_add(7);
-
-// Add additional multiplications, S-boxes and non-linear operations.
-// Change memory accesses to non-sequential (randomized) jumps to break cache optimizations.
-// If the FPGA has multiple cores, start multiple simultaneous calculations using threads or SIMD.
-
-// A few "if" branches?
-
-// Idea:
-// Include the Hash-DLL with flow obfuscation and code obfuscation (signed?)
-// Add Race Conditions / High Latence Ways for Bitstreams
-
-// Algorithmic modification every X blocks?
-
-// if block_height % 10000 == 0:
-//   CURRENT_ALGORITHM = upgraded_algorithm()
-
-// Fix:
-// Exclude Ram out of bound
-// Make memory accesses non-skippable
-
-// Info:
-// 224 MB on-chip RAM (its ddr3 ram)
-// 8 GB !!! HBM2 with 420 GB/s
-// Dual-Core Cortex-A9 !!!
-// From 2018 !!!
-
-
-// Memory fragmentation and random accesses: Frequent writing and reading in random patterns on the external HBM2 memory would overstretch the memory access bandwidth, as HBM2 offers very fast bandwidths of 420 GB/s but is not optimally used in random access patterns. This would lead to an overload of the memory access mechanisms.
-
-// RAM consumption: Increasing the required memory to several gigabytes (based on dynamic memory requirements, as in the code with the 32 MB base and the ability to scale to several GB) can overload the on-chip memory (224 MB DDR3). This could force the processor to constantly access the slow external memory (HBM2), causing significant delays and performance bottlenecks.
-
-// Continuous high-bandwidth memory access: If the algorithm is constantly sending large amounts of data back and forth between the 8 GB HBM2 and the processor, especially with intensive non-sequential access patterns, this can put extreme strain on the 420 GB/s bandwidth. Even though this bandwidth is high, it could be overwhelmed by the CPU during extreme access patterns and high data usage.
-
-// Chaining several cryptographic hash functions: If you chain several cryptographic functions together (e.g. SHA3-256, then BLAKE3, then Heavy Hash) without relieving the processor, the Cortex-A9 can be heavily loaded by the constant calculations and hashing processes. In addition, a stronger nesting of cryptography algorithms could further reduce performance.
-
-// Constantly high data rate between the cores and external memory: If each individual processor core manages large amounts of data via the external memory buses, and there is also constant interprocessor communication, the communication between the cores and the external hardware can severely affect the data transfer bandwidth and the computing power. This leads to the processor and the system as a whole being overwhelmed.
-
-
 // ---------------------------------------------
 
-
-// ###### v2.1 Latest
+// ### Lib.rs 
+// ###### v2.2
 
 // Todo:
 // More Bitmanipulations
@@ -280,6 +240,129 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     //     return Uint256::from_le_bytes(jit_result.as_bytes());
     // }
 
+
+#[inline]
+#[must_use]
+/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
+    let hash = self.hasher.clone().finalize_with_nonce(nonce);
+    let hash_bytes: [u8; 32] = match hash.as_bytes().try_into() {
+        Ok(bytes) => bytes,
+        Err(_) => return Err("Hash output length mismatch".into()),
+    };
+
+    // Initial SHA3-256 Hash
+    let sha3_hash = match self.sha3_hash(&hash_bytes) {
+        Ok(hash) => hash,
+        Err(_) => return Err("SHA3-256 hashing failed".into()),
+    };
+
+    // Bit manipulations based on NONCE
+    let mut sha3_hash_bytes = sha3_hash;
+    for i in 0..32 {
+        sha3_hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
+    }
+
+    // First BLAKE3 Hash
+    let blake3_first = match self.blake3_hash(sha3_hash_bytes) {
+        Ok(hash) => hash,
+        Err(_) => return Err("BLAKE3 hashing failed".into()),
+    };
+    let mut blake3_first_bytes = blake3_first;
+
+    // Dynamic number of BLAKE3 rounds (2-4) based on hash values
+    let num_b3_rounds = self.calculate_b3_rounds(&blake3_first_bytes);
+    let mut blake3_hash = blake3_first_bytes;
+    for _ in 0..num_b3_rounds {
+        let blake3_result = match self.blake3_hash(blake3_hash) {
+            Ok(result) => result,
+            Err(_) => return Err("BLAKE3 round hashing failed".into()),
+        };
+        blake3_hash = blake3_result;
+
+        // Byte swaps based on hash values
+        self.byte_swap(&mut blake3_hash)?;
+    }
+
+    // Dynamic SHA3-256 based on BLAKE3 output
+    let num_sha3_rounds = self.calculate_sha3_rounds(&blake3_hash);
+    let mut sha3_hash = blake3_hash;
+    for _ in 0..num_sha3_rounds {
+        let sha3_result = match self.sha3_hash(&sha3_hash) {
+            Ok(result) => result,
+            Err(_) => return Err("SHA3-256 round hashing failed".into()),
+        };
+        sha3_hash = sha3_result;
+
+        // Additional bit manipulations
+        self.bit_manipulations(&mut sha3_hash);
+    }
+
+    // Random memory accesses
+    let temp_buf = self.random_memory_accesses(&sha3_hash, &blake3_hash)?;
+
+    // Final Heavy Hash
+    let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
+
+    // Convert to Uint256
+    Ok(Uint256::from_le_bytes(final_hash.as_bytes()))
+}
+
+
+// Related functions
+
+fn sha3_hash(&self, input: &[u8; 32]) -> Result<[u8; 32], String> {
+    let mut sha3_hasher = Sha3_256::new();
+    sha3_hasher.update(input);
+    let hash = sha3_hasher.finalize();
+    hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".into())
+}
+
+fn blake3_hash(&self, input: [u8; 32]) -> Result<[u8; 32], String> {
+    let hash = blake3::hash(&input);
+    let hash_bytes = hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".into())?;
+    Ok(hash_bytes)
+}
+
+fn calculate_b3_rounds(&self, input: &[u8; 32]) -> usize {
+    ((u32::from_le_bytes(input[4..8].try_into().unwrap_or_default()) % 3) + 2) as usize
+}
+
+fn calculate_sha3_rounds(&self, input: &[u8; 32]) -> usize {
+    ((u32::from_le_bytes(input[8..12].try_into().unwrap_or_default()) % 3) + 2) as usize
+}
+
+fn byte_swap(&self, data: &mut [u8; 32]) -> Result<(), String> {
+    let swap_index_1 = (data[0] as usize) % 32;
+    let swap_index_2 = (data[4] as usize) % 32;
+    let swap_index_3 = (data[8] as usize) % 32;
+    let swap_index_4 = (data[12] as usize) % 32;
+    data.swap(swap_index_1, swap_index_2);
+    data.swap(swap_index_3, swap_index_4);
+    Ok(())
+}
+
+fn bit_manipulations(&self, sha3_hash: &mut [u8; 32]) {
+    for i in (0..32).step_by(4) {
+        sha3_hash[i] ^= sha3_hash[i + 1];
+    }
+}
+
+fn random_memory_accesses(&self, sha3_hash: &[u8; 32], blake3_hash: &[u8; 32]) -> Result<[u8; 64], String> {
+    let mut temp_buf = [0u8; 64];
+    for i in 0..64 {
+        let rand_index = (sha3_hash[i % 32] as usize + blake3_hash[(i + 5) % 32] as usize) % 64;
+        temp_buf[rand_index] ^= sha3_hash[i % 32] ^ blake3_hash[(i + 7) % 32];
+    }
+    Ok(temp_buf)
+}
+
+
+
+// ---------------------------------------------
+
+
+// ###### v2.1
 
 
 #[inline]
@@ -356,7 +439,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
 
 // ---------------------------------------------
 
-// ##### V 2.0 Backup
+// ##### v2.0
 
 
 
@@ -406,15 +489,3 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     // Convert to Uint256
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
-
-
-// Combination of algorithms
-// More iterations
-// Dynamic number of iterations
-// More non-linear behavior / non-deterministic pipelines
-
-// Idea:
-// Maybee Integrate a illiterations with scrypt, Argon2???
-// Add a MiniPOW for validate the Nonces? 
-
-
