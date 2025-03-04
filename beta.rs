@@ -309,9 +309,11 @@ pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
 }
 
 
-// Related functions
+// ### Related functions
 
+// Hash functions
 fn sha3_hash(&self, input: &[u8; 32]) -> Result<[u8; 32], String> {
+    // Computes SHA-3-256
     let mut sha3_hasher = Sha3_256::new();
     sha3_hasher.update(input);
     let hash = sha3_hasher.finalize();
@@ -319,20 +321,26 @@ fn sha3_hash(&self, input: &[u8; 32]) -> Result<[u8; 32], String> {
 }
 
 fn blake3_hash(&self, input: [u8; 32]) -> Result<[u8; 32], String> {
+    // Computes BLAKE3
     let hash = blake3::hash(&input);
     let hash_bytes = hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".into())?;
     Ok(hash_bytes)
 }
 
+// Rounds calculation based on input bytes
 fn calculate_b3_rounds(&self, input: &[u8; 32]) -> usize {
+    // Determines number of rounds for BLAKE3
     ((u32::from_le_bytes(input[4..8].try_into().unwrap_or_default()) % 3) + 2) as usize
 }
 
 fn calculate_sha3_rounds(&self, input: &[u8; 32]) -> usize {
+    // Determines number of rounds for SHA3
     ((u32::from_le_bytes(input[8..12].try_into().unwrap_or_default()) % 3) + 2) as usize
 }
 
+// Swaps bytes at calculated indices
 fn byte_swap(&self, data: &mut [u8; 32]) -> Result<(), String> {
+    // Swaps bytes
     let swap_index_1 = (data[0] as usize) % 32;
     let swap_index_2 = (data[4] as usize) % 32;
     let swap_index_3 = (data[8] as usize) % 32;
@@ -342,13 +350,17 @@ fn byte_swap(&self, data: &mut [u8; 32]) -> Result<(), String> {
     Ok(())
 }
 
+// Bitwise manipulation
 fn bit_manipulations(&self, sha3_hash: &mut [u8; 32]) {
+    // Performs XOR bit manipulation on SHA3 hash bytes
     for i in (0..32).step_by(4) {
         sha3_hash[i] ^= sha3_hash[i + 1];
     }
 }
 
+// Memory access based on SHA3 and BLAKE3
 fn random_memory_accesses(&self, sha3_hash: &[u8; 32], blake3_hash: &[u8; 32]) -> Result<[u8; 64], String> {
+    // Random memory accesses and XOR operations
     let mut temp_buf = [0u8; 64];
     for i in 0..64 {
         let rand_index = (sha3_hash[i % 32] as usize + blake3_hash[(i + 5) % 32] as usize) % 64;
