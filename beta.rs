@@ -106,7 +106,7 @@ fn s_box_1(value: u8) -> u8 {
         0x63, 0x7C, 0x77, 0x7B, 0xF0, 0xD7, 0xAB, 0x76, 0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
         0xAD, 0x2A, 0xAF, 0x99, 0x68, 0x28, 0xD4, 0xA1, 0xDB, 0xFC, 0xA0, 0xD3, 0xE6, 0xF6, 0xF7, 0xFE,
     ];
-    s_box[(value & 0xFF) as usize]
+    s_box[(value & 0x1F) as usize]
 }
 
 fn s_box_2(value: u8) -> u8 {
@@ -114,7 +114,7 @@ fn s_box_2(value: u8) -> u8 {
         0x37, 0x59, 0x9B, 0xA7, 0x5E, 0x2B, 0xB1, 0x8D, 0xF1, 0xC7, 0xBB, 0x4A, 0xB5, 0x0F, 0xD2, 0x63,
         0x56, 0x7A, 0x3C, 0x31, 0x79, 0x41, 0xD9, 0xC1, 0xF3, 0x8E, 0x62, 0xC9, 0xD3, 0x6E, 0x45, 0x6A,
     ];
-    s_box[(value & 0xFF) as usize]
+    s_box[(value & 0x1F) as usize]
 }
 
 fn s_box_3(value: u8) -> u8 {
@@ -122,7 +122,7 @@ fn s_box_3(value: u8) -> u8 {
         0x1F, 0xA9, 0xCB, 0xE8, 0xD5, 0x91, 0x60, 0x8C, 0xFA, 0x64, 0xB7, 0x53, 0x2D, 0x74, 0x56, 0x20,
         0xF6, 0x4E, 0x81, 0x95, 0xC0, 0x76, 0x83, 0x4C, 0xBE, 0x7B, 0x6B, 0xD3, 0x38, 0x45, 0xB3, 0x92,
     ];
-    s_box[(value & 0xFF) as usize]
+    s_box[(value & 0x1F) as usize]
 }
 
 fn s_box_4(value: u8) -> u8 {
@@ -130,7 +130,7 @@ fn s_box_4(value: u8) -> u8 {
         0x2B, 0x3A, 0x9E, 0x84, 0xA3, 0xF4, 0x74, 0xD5, 0x7F, 0xD2, 0x67, 0x92, 0x16, 0x55, 0xFB, 0x2F,
         0x8D, 0x39, 0x51, 0xAD, 0x8A, 0xF1, 0x69, 0x68, 0x29, 0x11, 0x64, 0x9C, 0x99, 0xC8, 0x54, 0x46,
     ];
-    s_box[(value & 0xFF) as usize]
+    s_box[(value & 0x1F) as usize]
 }
 
 
@@ -173,7 +173,13 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
      // let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 256 + 256;
 
     // Memory hard (using larger memory to simulate memory usage)
-    let mut memory: Vec<u8> = vec![0; 32 * 1024 * 1024]; // 64MB  ### Change to multiple GB for constantly access slow external memory. 
+    let mut memory = vec![0u8; 32 * 1024 * 1024]; // 64MB  ### Change to more ram
+
+    // Test
+    println!("Memory size: {} bytes", memory.len());  
+
+    // Calculating access to an element in memory taking into account the index
+    let mem_value = memory[(i + 5) % memory.len()]; 
 
 
     // Initialize the memory based on hash
@@ -205,7 +211,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             let a_nibble = multi_layer_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
             let b_nibble = multi_layer_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
 
-            product[i] = ((a_nibble << 4) | b_nibble) as u8;
+            product[i] = (product[i] + ((a_nibble << 4) | b_nibble)) as u8;
         }
 
         // Modify memory
@@ -315,6 +321,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
 
     // Random memory accesses
     let temp_buf = self.random_memory_accesses(&sha3_hash, &blake3_hash)?;
+    use_temp_buf(temp_buf);
 
     // Final Heavy Hash
     let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
