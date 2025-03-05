@@ -169,18 +169,10 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     // Dynamically calculate the number of rounds
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
-     // Dynamically calculate the number of rounds (increase to max 512 rounds)
-     // let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 256 + 256;
-
     // Memory hard (using larger memory to simulate memory usage)
-    let mut memory = vec![0u8; 32 * 1024 * 1024]; // 64MB  ### Change to more ram
+    let mut memory = vec![0u8; 32 * 1024 * 1024]; // 32MB Test
 
-    // Test
-    println!("Memory size: {} bytes", memory.len());  
-
-    // Calculating access to an element in memory taking into account the index
-    let mem_value = memory[(i + 5) % memory.len()]; 
-
+    println!("Memory size: {} bytes", memory.len());
 
     // Initialize the memory based on hash
     for i in 0..memory.len() {
@@ -198,8 +190,8 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             // Interactions with memory and nibbles
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
-                sum1 += (self.0[2 * i][j] as u16).wrapping_mul(elem);
-                sum2 += (self.0[2 * i + 1][j] as u16).wrapping_mul(elem);
+                sum1 += (memory[2 * i] as u16).wrapping_mul(elem); // Access to memory[2 * i]
+                sum2 += (memory[2 * i + 1] as u16).wrapping_mul(elem); // Access to memory[2 * i + 1]
             }
 
             // Modify memory dynamically
@@ -214,9 +206,9 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             product[i] = (product[i] + ((a_nibble << 4) | b_nibble)) as u8;
         }
 
-        // Modify memory
+        // Modify memory in a dynamic way
         let new_memory_value = (block_hash.as_bytes()[0] ^ block_hash.as_bytes()[1]) & 0xFF;
-        memory[(block_hash.as_bytes()[0] as usize) % memory.len()] = new_memory_value;
+        memory[(block_hash.as_bytes()[0] as usize) % memory.len()] = new_memory_value; // based on hash
     }
 
     // Final XOR operation
