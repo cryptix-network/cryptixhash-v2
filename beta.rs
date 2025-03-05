@@ -170,6 +170,10 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     // Convert the hash into nibbles
     let nibbles: [u8; 64] = {
         let o_bytes = block_hash.as_bytes();
+        if o_bytes.len() != 32 {
+            return Err("Block hash must be exactly 32 bytes long".to_string());
+        }
+
         let mut arr = [0u8; 64];
         for (i, &byte) in o_bytes.iter().enumerate() {
             arr[2 * i] = byte >> 4; // Upper nibble
@@ -200,13 +204,19 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
             let mut sum2 = 0u16;
 
             // Interactions with memory and nibbles
+            if nibbles.len() < 64 {
+                return Err("Nibbles array must contain at least 64 elements".to_string());
+            }
+            
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
-                if 2 * i >= memory.len() {
-                    return Err("Memory index out of bounds (2 * i)".to_string());
+                
+                if 2 * i + 1 >= memory.len() {
+                    return Err("Memory index out of bounds (2 * i + 1)".to_string());
                 }
-                sum1 += (memory[2 * i] as u16).wrapping_mul(elem); // Access to memory[2 * i]
-                sum2 += (memory[2 * i + 1] as u16).wrapping_mul(elem); // Access to memory[2 * i + 1]
+                
+                sum1 = sum1.wrapping_add((memory[2 * i] as u16).wrapping_mul(elem)); // Access to memory[2 * i]
+                sum2 = sum2.wrapping_add((memory[2 * i + 1] as u16).wrapping_mul(elem)); // Access to memory[2 * i + 1]
             }
 
             // Modify memory dynamically
@@ -222,12 +232,23 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
         }
 
         // Modify memory in a dynamic way
-        let new_memory_value = (block_hash_bytes[0] ^ block_hash_bytes[1]) & 0xFF;
-        if memory.len() == 0 {
+        if memory.is_empty() {
             return Err("Memory is empty, cannot update memory values".to_string());
         }
-        memory[(block_hash_bytes[0] as usize) % memory.len()] = new_memory_value; // based on hash
+
+        // block_hash_bytes has enough elements
+        if block_hash_bytes.len() < 2 {
+            return Err("block_hash_bytes should contain at least two bytes".to_string());
+        }
+
+        let new_memory_value = (block_hash_bytes[0] ^ block_hash_bytes[1]) & 0xFF;
+
+        // index is within bounds
+        let index = (block_hash_bytes[0] as usize) % memory.len();
+        memory[index] = new_memory_value;
+
     }
+
 
     // Final XOR operation
     product.iter_mut().zip(block_hash.as_bytes()).for_each(|(p, h)| *p ^= h);
