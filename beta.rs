@@ -145,16 +145,29 @@ fn multi_layer_s_box(value: u8) -> u8 {
 }
 
 // Dynamic S-Box based on the block hash
-fn generate_dynamic_s_box(block_hash: &[u8]) -> [u8; 256] {
+fn generate_dynamic_s_box(block_hash: &[u8]) -> Result<[u8; 256], &'static str> {
+    if block_hash.len() == 0 {
+        return Err("Block hash cannot be empty");
+    }
+
     let mut s_box = [0u8; 256];
     for i in 0..256 {
         s_box[i] = block_hash[i % block_hash.len()] ^ i as u8;
     }
-    s_box
+
+    Ok(s_box)
 }
+
 
 // The hash function with memory usage and dynamic rounds
 pub fn heavy_hash(block_hash: Hash) -> Hash {
+    
+    // Check if the input hash is empty
+    let block_hash_bytes = block_hash.as_bytes();
+    if block_hash_bytes.is_empty() {
+        return Err("Input hash cannot be empty");
+    }
+
     // Convert the hash into nibbles
     let nibbles: [u8; 64] = {
         let o_bytes = block_hash.as_bytes();
@@ -188,8 +201,12 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             let mut sum2 = 0u16;
 
             // Interactions with memory and nibbles
+
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
+                if 2 * i >= memory.len() {
+                    return Err("Memory index out of bounds (2 * i)");
+                }
                 sum1 += (memory[2 * i] as u16).wrapping_mul(elem); // Access to memory[2 * i]
                 sum2 += (memory[2 * i + 1] as u16).wrapping_mul(elem); // Access to memory[2 * i + 1]
             }
@@ -207,8 +224,12 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         }
 
         // Modify memory in a dynamic way
-        let new_memory_value = (block_hash.as_bytes()[0] ^ block_hash.as_bytes()[1]) & 0xFF;
-        memory[(block_hash.as_bytes()[0] as usize) % memory.len()] = new_memory_value; // based on hash
+
+        let new_memory_value = (block_hash_bytes[0] ^ block_hash_bytes[1]) & 0xFF;
+        if memory.len() == 0 {
+            return Err("Memory is empty, cannot update memory values");
+        }
+        memory[(block_hash_bytes[0] as usize) % memory.len()] = new_memory_value; // based on hash
     }
 
     // Final XOR operation
@@ -222,13 +243,19 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 
     let mut result = product;
     for final_transformation in transformations.iter() {
+        if final_transformation.len() != 32 {
+            return Err("Final transformation array length is not 32");
+        }
         for i in 0..32 {
             result[i] ^= final_transformation[i];
         }
     }
 
     // Return the final hash
-    CryptixHash::hash(Hash::from_bytes(result))
+    match CryptixHash::hash(Hash::from_bytes(result)) {
+        Ok(hash) => Ok(hash),
+        Err(_) => Err("Error occurred during final hash generation"),
+    }
 }
 
 
