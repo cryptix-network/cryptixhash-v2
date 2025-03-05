@@ -183,7 +183,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
     // Memory hard (using larger memory to simulate memory usage)
-    let mut memory = vec![0u8; 32 * 1024 * 1024]; // 32MB Test
+    let mut memory = vec![0u8; 16 * 1024 * 1024]; // 16 MB for better L3 Cache
 
     println!("Memory size: {} bytes", memory.len());
 
@@ -201,7 +201,6 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             let mut sum2 = 0u16;
 
             // Interactions with memory and nibbles
-
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
                 if 2 * i >= memory.len() {
@@ -224,7 +223,6 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         }
 
         // Modify memory in a dynamic way
-
         let new_memory_value = (block_hash_bytes[0] ^ block_hash_bytes[1]) & 0xFF;
         if memory.len() == 0 {
             return Err("Memory is empty, cannot update memory values");
