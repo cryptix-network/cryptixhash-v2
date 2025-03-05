@@ -338,7 +338,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
 
     // Random memory accesses
     let temp_buf = self.random_memory_accesses(&sha3_hash, &blake3_hash)?;
-    use_temp_buf(temp_buf);
+    use_temp_buf(temp_buf); // think about where to use 
 
     // Final Heavy Hash
     let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
