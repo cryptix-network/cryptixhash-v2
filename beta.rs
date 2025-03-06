@@ -156,9 +156,7 @@ fn generate_dynamic_s_box(block_hash: &[u8]) -> Result<[u8; 256], &'static str> 
     Ok(s_box)
 }
 
-// The hash function with memory usage and dynamic rounds
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
-    
     // Check if the input hash is empty
     let block_hash_bytes = block_hash.as_bytes();
     if block_hash_bytes.is_empty() {
@@ -167,7 +165,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
     // Convert the hash into nibbles
     let nibbles: [u8; 64] = {
-        let o_bytes = block_hash.as_bytes();
+        let o_bytes = block_hash_bytes;
         if o_bytes.len() != 32 {
             return Err("Block hash must be exactly 32 bytes long".to_string());
         }
@@ -181,7 +179,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     };
 
     // Dynamically calculate the number of rounds
-    let dynamic_loops = (block_hash.as_bytes().iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
+    let dynamic_loops = (block_hash_bytes.iter().fold(0u8, |acc, &x| acc.wrapping_add(x))) % 64 + 64;
 
     // Memory hard (using larger memory to simulate memory usage)
     let mut memory = vec![0u8; 16 * 1024 * 1024]; // 16 MB for better L3 Cache
@@ -190,7 +188,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
     // Initialize the memory based on hash
     for i in 0..memory.len() {
-        memory[i] = (block_hash.as_bytes()[i % block_hash.len()] ^ (i as u8)) % 256;
+        memory[i] = (block_hash_bytes[i % block_hash_bytes.len()] ^ (i as u8)) % 256;
     }
 
     // Main loop for dynamic rounds
@@ -208,11 +206,12 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
             
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
-                
+
+                // Ensure indices are valid
                 if 2 * i + 1 >= memory.len() {
                     return Err("Memory index out of bounds (2 * i + 1)".to_string());
                 }
-                
+
                 sum1 = sum1.wrapping_add((memory[2 * i] as u16).wrapping_mul(elem)); // Access to memory[2 * i]
                 sum2 = sum2.wrapping_add((memory[2 * i + 1] as u16).wrapping_mul(elem)); // Access to memory[2 * i + 1]
             }
@@ -248,7 +247,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     }
 
     // Final XOR operation
-    product.iter_mut().zip(block_hash.as_bytes()).for_each(|(p, h)| *p ^= h);
+    product.iter_mut().zip(block_hash_bytes.iter()).for_each(|(p, h)| *p ^= *h);
 
     // Apply final transformations
     let transformations = [
@@ -272,8 +271,6 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
         Err(_) => Err("Error occurred during final hash generation".to_string()),
     }
 }
-
-
 
 
 // ------------- TESTS
@@ -368,138 +365,145 @@ mod tests {
     //     return Uint256::from_le_bytes(jit_result.as_bytes());
     // }
 
-
-#[inline]
-#[must_use]
-/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
-pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
-    let hash = self.hasher.clone().finalize_with_nonce(nonce);
-    let hash_bytes: [u8; 32] = match hash.as_bytes().try_into() {
-        Ok(bytes) => bytes,
-        Err(_) => return Err("Hash output length mismatch".into()),
-    };
-
-    // Initial SHA3-256 Hash
-    let sha3_hash = match self.sha3_hash(&hash_bytes) {
-        Ok(hash) => hash,
-        Err(_) => return Err("SHA3-256 hashing failed".into()),
-    };
-
-    // Bit manipulations based on NONCE
-    let mut sha3_hash_bytes = sha3_hash;
-    for i in 0..32 {
-        sha3_hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
-    }
-
-    // First BLAKE3 Hash
-    let blake3_first = match self.blake3_hash(sha3_hash_bytes) {
-        Ok(hash) => hash,
-        Err(_) => return Err("BLAKE3 hashing failed".into()),
-    };
-    let mut blake3_first_bytes = blake3_first;
-
-    // Dynamic number of BLAKE3 rounds (2-4) based on hash values
-    let num_b3_rounds = self.calculate_b3_rounds(&blake3_first_bytes);
-    let mut blake3_hash = blake3_first_bytes;
-    for _ in 0..num_b3_rounds {
-        let blake3_result = match self.blake3_hash(blake3_hash) {
-            Ok(result) => result,
-            Err(_) => return Err("BLAKE3 round hashing failed".into()),
+    #[inline]
+    #[must_use]
+    /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+    pub fn calculate_pow(&self, nonce: u64) -> Result<Uint256, String> {
+        let hash = self.hasher.clone().finalize_with_nonce(nonce);
+        let hash_bytes: [u8; 32] = match hash.as_bytes().try_into() {
+            Ok(bytes) => bytes,
+            Err(_) => return Err("Hash output length mismatch".into()),
         };
-        blake3_hash = blake3_result;
-
-        // Byte swaps based on hash values
-        self.byte_swap(&mut blake3_hash)?;
-    }
-
-    // Dynamic SHA3-256 based on BLAKE3 output
-    let num_sha3_rounds = self.calculate_sha3_rounds(&blake3_hash);
-    let mut sha3_hash = blake3_hash;
-    for _ in 0..num_sha3_rounds {
-        let sha3_result = match self.sha3_hash(&sha3_hash) {
-            Ok(result) => result,
-            Err(_) => return Err("SHA3-256 round hashing failed".into()),
+    
+        // Initial SHA3-256 Hash
+        let sha3_hash = match self.sha3_hash(&hash_bytes) {
+            Ok(hash) => hash,
+            Err(_) => return Err("SHA3-256 hashing failed".into()),
         };
-        sha3_hash = sha3_result;
-
-        // Additional bit manipulations
-        self.bit_manipulations(&mut sha3_hash);
+    
+        // Bit manipulations based on NONCE
+        let mut sha3_hash_bytes = sha3_hash;
+        for i in 0..32 {
+            sha3_hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
+        }
+    
+        // First BLAKE3 Hash
+        let blake3_first = match self.blake3_hash(sha3_hash_bytes) {
+            Ok(hash) => hash,
+            Err(_) => return Err("BLAKE3 hashing failed".into()),
+        };
+        let mut blake3_first_bytes = blake3_first;
+    
+        // Dynamic number of BLAKE3 rounds (2-4) based on hash values
+        let num_b3_rounds = self.calculate_b3_rounds(&blake3_first_bytes);
+        let mut blake3_hash = blake3_first_bytes;
+        for _ in 0..num_b3_rounds {
+            let blake3_result = match self.blake3_hash(blake3_hash) {
+                Ok(result) => result,
+                Err(_) => return Err("BLAKE3 round hashing failed".into()),
+            };
+            blake3_hash = blake3_result;
+    
+            // Byte swaps based on hash values
+            self.byte_swap(&mut blake3_hash)?;
+        }
+    
+        // Dynamic SHA3-256 based on BLAKE3 output
+        let num_sha3_rounds = self.calculate_sha3_rounds(&blake3_hash);
+        let mut sha3_hash = blake3_hash;
+        for _ in 0..num_sha3_rounds {
+            let sha3_result = match self.sha3_hash(&sha3_hash) {
+                Ok(result) => result,
+                Err(_) => return Err("SHA3-256 round hashing failed".into()),
+            };
+            sha3_hash = sha3_result;
+    
+            // Additional bit manipulations
+            self.bit_manipulations(&mut sha3_hash);
+        }
+    
+        // Random memory accesses
+        let temp_buf = self.random_memory_accesses(&sha3_hash, &blake3_hash)?;
+        use_temp_buf(temp_buf); // think about where to use 
+    
+        // Final Heavy Hash
+        let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
+    
+        // Convert to Uint256
+        Ok(Uint256::from_le_bytes(final_hash.as_bytes()))
     }
-
-    // Random memory accesses
-    let temp_buf = self.random_memory_accesses(&sha3_hash, &blake3_hash)?;
-    use_temp_buf(temp_buf); // think about where to use 
-
-    // Final Heavy Hash
-    let final_hash = self.matrix.heavy_hash(Hash::from(sha3_hash));
-
-    // Convert to Uint256
-    Ok(Uint256::from_le_bytes(final_hash.as_bytes()))
-}
-
-
-// ### Related functions
-
-// Hash functions
-fn sha3_hash(&self, input: &[u8; 32]) -> Result<[u8; 32], String> {
-    // Computes SHA-3-256
-    let mut sha3_hasher = Sha3_256::new();
-    sha3_hasher.update(input);
-    let hash = sha3_hasher.finalize();
-    hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".into())
-}
-
-fn blake3_hash(&self, input: [u8; 32]) -> Result<[u8; 32], String> {
-    // Computes BLAKE3
-    let hash = blake3::hash(&input);
-    let hash_bytes = hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".into())?;
-    Ok(hash_bytes)
-}
-
-// Rounds calculation based on input bytes
-fn calculate_b3_rounds(&self, input: &[u8; 32]) -> usize {
-    // Determines number of rounds for BLAKE3
-    ((u32::from_le_bytes(input[4..8].try_into().unwrap_or_default()) % 3) + 2) as usize
-}
-
-fn calculate_sha3_rounds(&self, input: &[u8; 32]) -> usize {
-    // Determines number of rounds for SHA3
-    ((u32::from_le_bytes(input[8..12].try_into().unwrap_or_default()) % 3) + 2) as usize
-}
-
-// Swaps bytes at calculated indices
-fn byte_swap(&self, data: &mut [u8; 32]) -> Result<(), String> {
-    // Swaps bytes
-    let swap_index_1 = (data[0] as usize) % 32;
-    let swap_index_2 = (data[4] as usize) % 32;
-    let swap_index_3 = (data[8] as usize) % 32;
-    let swap_index_4 = (data[12] as usize) % 32;
-    data.swap(swap_index_1, swap_index_2);
-    data.swap(swap_index_3, swap_index_4);
-    Ok(())
-}
-
-// Bitwise manipulation
-fn bit_manipulations(&self, sha3_hash: &mut [u8; 32]) {
-    // Performs XOR bit manipulation on SHA3 hash bytes
-    for i in (0..32).step_by(4) {
-        sha3_hash[i] ^= sha3_hash[i + 1];
+    
+    
+    // ### Helper functions
+    
+    // Hash functions
+    fn sha3_hash(&self, input: &[u8; 32]) -> Result<[u8; 32], String> {
+        // Computes SHA-3-256
+        let mut sha3_hasher = Sha3_256::new();
+        sha3_hasher.update(input);
+        let hash = sha3_hasher.finalize();
+        hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".into())
     }
-}
-
-// Memory access based on SHA3 and BLAKE3
-fn random_memory_accesses(&self, sha3_hash: &[u8; 32], blake3_hash: &[u8; 32]) -> Result<[u8; 64], String> {
-    // Random memory accesses and XOR operations
-    let mut temp_buf = [0u8; 64];
-    for i in 0..64 {
-        let rand_index = (sha3_hash[i % 32] as usize + blake3_hash[(i + 5) % 32] as usize) % 64;
-        temp_buf[rand_index] ^= sha3_hash[i % 32] ^ blake3_hash[(i + 7) % 32];
+    
+    fn blake3_hash(&self, input: [u8; 32]) -> Result<[u8; 32], String> {
+        // Computes BLAKE3
+        let hash = blake3::hash(&input);
+        let hash_bytes = hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".into())?;
+        Ok(hash_bytes)
     }
-    Ok(temp_buf)
-}
-
-
-
+    
+    // Rounds calculation based on input bytes
+    fn calculate_b3_rounds(&self, input: &[u8; 32]) -> usize {
+        if input.len() < 8 {
+            return 2; // Fallback if the length is not enough
+        }
+        let rounds = u32::from_le_bytes(input[4..8].try_into().map_err(|_| "Invalid slice for rounds")?);
+        ((rounds % 3) + 2) as usize
+    }
+    
+    fn calculate_sha3_rounds(&self, input: &[u8; 32]) -> usize {
+        // Determines number of rounds for SHA3
+        if input.len() < 12 {
+            return 2; 
+        }
+        let rounds = u32::from_le_bytes(input[8..12].try_into().map_err(|_| "Invalid slice for rounds")?);
+        ((rounds % 3) + 2) as usize
+    }
+    
+    // Swaps bytes at calculated indices
+    fn byte_swap(&self, data: &mut [u8; 32]) -> Result<(), String> {
+        let swap_index_1 = (data[0] as usize) % 32;
+        let swap_index_2 = (data[4] as usize) % 32;
+        let swap_index_3 = (data[8] as usize) % 32;
+        let swap_index_4 = (data[12] as usize) % 32;
+        data.swap(swap_index_1, swap_index_2);
+        data.swap(swap_index_3, swap_index_4);
+        Ok(())
+    }
+    
+    // Bitwise manipulation
+    fn bit_manipulations(&self, sha3_hash: &mut [u8; 32]) {
+        for i in (0..32).step_by(4) {
+            if i + 1 < 32 { // Avoid accessing out-of-bounds
+                sha3_hash[i] ^= sha3_hash[i + 1];
+            }
+        }
+    }
+    
+    // Memory access based on SHA3 and BLAKE3
+    fn random_memory_accesses(&self, sha3_hash: &[u8; 32], blake3_hash: &[u8; 32]) -> Result<[u8; 64], String> {
+        let mut temp_buf = [0u8; 64];
+        for i in 0..64 {
+            let rand_index = (sha3_hash[i % 32] as usize + blake3_hash[(i + 5) % 32] as usize) % 64;
+            if rand_index < 64 {
+                temp_buf[rand_index] ^= sha3_hash[i % 32] ^ blake3_hash[(i + 7) % 32];
+            } else {
+                return Err("Calculated random index out of bounds".into());
+            }
+        }
+        Ok(temp_buf)
+    }
+    
 // ---- Test
 
 
