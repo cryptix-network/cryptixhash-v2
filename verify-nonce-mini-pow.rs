@@ -12,8 +12,14 @@ pub fn verify_nonce_mini_pow(&self, nonce: u64) -> Result<Vec<u8>, String> {
         Err(_) => return Err("SHA3-256 hashing failed".into()),
     };
 
+   // XOR manipulation for additional security
+    let mut manipulated_hash = sha3_hash;
+    for i in 0..manipulated_hash.len() {
+        manipulated_hash[i] ^= 0xAA;
+    }
+
     // Get the first 8 bytes
-    let first_8_bytes = sha3_hash[0..8].to_vec(); 
+    let first_8_bytes = manipulated_hash[0..8].to_vec(); 
 
     Ok(first_8_bytes)
 }
