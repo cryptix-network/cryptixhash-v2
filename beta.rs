@@ -133,8 +133,6 @@ fn s_box_4(value: u8) -> u8 {
     s_box[(value & 0x1F) as usize]
 }
 
-
-
 // Multi-layer S-Box 
 fn multi_layer_s_box(value: u8) -> u8 {
     let x1 = s_box_1(value);
@@ -249,7 +247,6 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
     }
 
-
     // Final XOR operation
     product.iter_mut().zip(block_hash.as_bytes()).for_each(|(p, h)| *p ^= h);
 
@@ -276,6 +273,77 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     }
 }
 
+
+
+
+// ------------- TESTS
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper function to generate a Hash
+    fn generate_sample_hash() -> Hash {
+        let sample_bytes: [u8; 32] = [
+            0xAB, 0xC1, 0xD2, 0xE3, 0xF4, 0xA5, 0xB6, 0xC7, 
+            0xD8, 0xE9, 0xF0, 0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 
+            0xF6, 0xA7, 0xB8, 0xC9, 0xD0, 0xE1, 0xF2, 0xA3, 
+            0xB4, 0xC5, 0xD6, 0xE7, 0xF8, 0xA9, 0xB0, 0xC1
+        ];
+        Hash::from_bytes(sample_bytes.to_vec())
+    }
+
+    // Test the heavy_hash function
+    #[test]
+    fn test_heavy_hash_valid_input() {
+        let block_hash = generate_sample_hash();
+        
+
+        match heavy_hash(block_hash) {
+            Ok(result) => {
+                assert!(result.as_bytes().len() == 32);
+                println!("Generated hash: {:?}", result.as_bytes());
+            },
+            Err(e) => panic!("Test failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_heavy_hash_empty_input() {
+        let block_hash = Hash::from_bytes(Vec::new());
+
+        match heavy_hash(block_hash) {
+            Ok(_) => panic!("Test failed: expected error for empty input"),
+            Err(e) => assert_eq!(e, "Input hash cannot be empty"),
+        }
+    }
+
+    #[test]
+    fn test_heavy_hash_invalid_length() {
+        let block_hash = Hash::from_bytes(vec![0xAB, 0xC1]); // Invalid length
+        
+        match heavy_hash(block_hash) {
+            Ok(_) => panic!("Test failed: expected error for invalid length input"),
+            Err(e) => assert_eq!(e, "Block hash must be exactly 32 bytes long"),
+        }
+    }
+
+    #[test]
+    fn test_heavy_hash_edge_case() {
+        let block_hash = Hash::from_bytes(vec![0x00; 32]); // Edge case, all zeros
+        
+
+        match heavy_hash(block_hash) {
+            Ok(result) => {
+                // The result should be 32 bytes long
+                assert!(result.as_bytes().len() == 32);
+                println!("Generated hash for edge case: {:?}", result.as_bytes());
+            },
+            Err(e) => panic!("Test failed: {}", e),
+        }
+    }
+}
 
 
 
@@ -428,5 +496,103 @@ fn random_memory_accesses(&self, sha3_hash: &[u8; 32], blake3_hash: &[u8; 32]) -
         temp_buf[rand_index] ^= sha3_hash[i % 32] ^ blake3_hash[(i + 7) % 32];
     }
     Ok(temp_buf)
+}
+
+
+
+// ---- Test
+
+
+#[cfg(test)]
+mod tests {
+    use super::*; /
+    use std::collections::HashMap;
+
+
+    struct MockHasher {
+
+        mock_hash: HashMap<u64, [u8; 32]>,
+    }
+
+    impl MockHasher {
+        fn new() -> Self {
+            let mut mock_hash = HashMap::new();
+            mock_hash.insert(1, [0u8; 32]); // nonce 1 gives a zeroed hash
+            mock_hash.insert(2, [1u8; 32]); // nonce 2 gives a hash of all ones
+            Self { mock_hash }
+        }
+    }
+
+    impl Hasher for MockHasher {
+        fn finalize_with_nonce(&self, nonce: u64) -> [u8; 32] {
+            *self.mock_hash.get(&nonce).unwrap_or(&[0u8; 32]) // Return mock hash based on nonce
+        }
+    }
+
+    #[test]
+    fn test_calculate_pow_success() {
+        let hasher = MockHasher::new();
+        let pow_calculator = PowCalculator { hasher };
+
+        let nonce: u64 = 1; // Test with nonce 1
+        let result = pow_calculator.calculate_pow(nonce);
+
+        // Assert: Verify the result
+        assert!(result.is_ok(), "Expected success, got: {:?}", result);
+        let hash = result.unwrap();
+        assert_eq!(hash.as_bytes(), &[0u8; 32], "Expected hash bytes to be zeroed");
+    }
+
+    #[test]
+    fn test_calculate_pow_with_different_nonce() {
+        let hasher = MockHasher::new();
+        let pow_calculator = PowCalculator { hasher };
+
+        let nonce: u64 = 2; // Test with nonce 2
+        let result = pow_calculator.calculate_pow(nonce);
+
+        // Assert: Verify the result
+        assert!(result.is_ok(), "Expected success, got: {:?}", result);
+        let hash = result.unwrap();
+        assert_eq!(hash.as_bytes(), &[1u8; 32], "Expected hash bytes to be all ones");
+    }
+
+    #[test]
+    fn test_calculate_pow_error_invalid_nonce() {
+        let hasher = MockHasher::new();
+        let pow_calculator = PowCalculator { hasher };
+
+        let nonce: u64 = 999; // This nonce is not defined in the mock
+        let result = pow_calculator.calculate_pow(nonce);
+
+        // Assert: Verify that we get an error
+        assert!(result.is_err(), "Expected error, got: {:?}", result);
+        assert_eq!(result.unwrap_err(), "Hash output length mismatch", "Unexpected error message");
+    }
+    
+    // Test for SHA3 and BLAKE3 failure cases
+    #[test]
+    fn test_sha3_hash_error() {
+
+        let mock_hasher = MockHasher::new();
+        let pow_calculator = PowCalculator { hasher: mock_hasher };
+
+        let invalid_hash_bytes: [u8; 32] = [0xFF; 32]; // Just an example
+
+        let result = pow_calculator.sha3_hash(&invalid_hash_bytes);
+        assert!(result.is_err(), "Expected error in SHA3 hashing, got: {:?}", result);
+    }
+
+    #[test]
+    fn test_blake3_hash_error() {
+
+        let mock_hasher = MockHasher::new();
+        let pow_calculator = PowCalculator { hasher: mock_hasher };
+
+        let invalid_input: [u8; 32] = [0xAB; 32]; // Just an example
+
+        let result = pow_calculator.blake3_hash(invalid_input);
+        assert!(result.is_err(), "Expected error in BLAKE3 hashing, got: {:?}", result);
+    }
 }
 
