@@ -101,50 +101,74 @@ const FINAL_X: [u8; 32] = [
 ];
 
 // S-Boxes for substitution
-fn s_box_1(value: u8) -> u8 {
+fn s_box_1(value: u8) -> Result<u8, &'static str> {
     let s_box = [
         0x63, 0x7C, 0x77, 0x7B, 0xF0, 0xD7, 0xAB, 0x76, 0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0,
         0xAD, 0x2A, 0xAF, 0x99, 0x68, 0x28, 0xD4, 0xA1, 0xDB, 0xFC, 0xA0, 0xD3, 0xE6, 0xF6, 0xF7, 0xFE,
     ];
-    s_box[(value & 0x1F) as usize]
+
+    // Check if the value is within the valid range
+    if value > 0x1F {
+        return Err("Value for s_box_1 is out of valid range");
+    }
+
+    Ok(s_box[(value & 0x1F) as usize])
 }
 
-fn s_box_2(value: u8) -> u8 {
+fn s_box_2(value: u8) -> Result<u8, &'static str> {
     let s_box = [
         0x37, 0x59, 0x9B, 0xA7, 0x5E, 0x2B, 0xB1, 0x8D, 0xF1, 0xC7, 0xBB, 0x4A, 0xB5, 0x0F, 0xD2, 0x63,
         0x56, 0x7A, 0x3C, 0x31, 0x79, 0x41, 0xD9, 0xC1, 0xF3, 0x8E, 0x62, 0xC9, 0xD3, 0x6E, 0x45, 0x6A,
     ];
-    s_box[(value & 0x1F) as usize]
+
+    // Check if the value is within the valid range
+    if value > 0x1F {
+        return Err("Value for s_box_2 is out of valid range");
+    }
+
+    Ok(s_box[(value & 0x1F) as usize])
 }
 
-fn s_box_3(value: u8) -> u8 {
+fn s_box_3(value: u8) -> Result<u8, &'static str> {
     let s_box = [
         0x1F, 0xA9, 0xCB, 0xE8, 0xD5, 0x91, 0x60, 0x8C, 0xFA, 0x64, 0xB7, 0x53, 0x2D, 0x74, 0x56, 0x20,
         0xF6, 0x4E, 0x81, 0x95, 0xC0, 0x76, 0x83, 0x4C, 0xBE, 0x7B, 0x6B, 0xD3, 0x38, 0x45, 0xB3, 0x92,
     ];
-    s_box[(value & 0x1F) as usize]
+
+    // Check if the value is within the valid range
+    if value > 0x1F {
+        return Err("Value for s_box_3 is out of valid range");
+    }
+
+    Ok(s_box[(value & 0x1F) as usize])
 }
 
-fn s_box_4(value: u8) -> u8 {
+fn s_box_4(value: u8) -> Result<u8, &'static str> {
     let s_box = [
         0x2B, 0x3A, 0x9E, 0x84, 0xA3, 0xF4, 0x74, 0xD5, 0x7F, 0xD2, 0x67, 0x92, 0x16, 0x55, 0xFB, 0x2F,
         0x8D, 0x39, 0x51, 0xAD, 0x8A, 0xF1, 0x69, 0x68, 0x29, 0x11, 0x64, 0x9C, 0x99, 0xC8, 0x54, 0x46,
     ];
-    s_box[(value & 0x1F) as usize]
+
+    // Check if the value is within the valid range
+    if value > 0x1F {
+        return Err("Value for s_box_4 is out of valid range");
+    }
+
+    Ok(s_box[(value & 0x1F) as usize])
 }
 
 // Multi-layer S-Box 
-fn multi_layer_s_box(value: u8) -> u8 {
-    let x1 = s_box_1(value);
-    let x2 = s_box_2(x1);
-    let x3 = s_box_3(x2);
-    let x4 = s_box_4(x3);
+fn multi_layer_s_box(value: u8) -> Result<u8, &'static str> {
+    let x1 = s_box_1(value)?;
+    let x2 = s_box_2(x1)?;
+    let x3 = s_box_3(x2)?;
+    let x4 = s_box_4(x3)?;
     s_box_3(x4)
 }
 
 // Dynamic S-Box based on the block hash
 fn generate_dynamic_s_box(block_hash: &[u8]) -> Result<[u8; 256], &'static str> {
-    if block_hash.len() == 0 {
+    if block_hash.is_empty() {
         return Err("Block hash cannot be empty");
     }
 
@@ -155,6 +179,7 @@ fn generate_dynamic_s_box(block_hash: &[u8]) -> Result<[u8; 256], &'static str> 
 
     Ok(s_box)
 }
+
 
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     // Check if the input hash is empty
