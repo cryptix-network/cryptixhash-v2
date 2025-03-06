@@ -31,6 +31,11 @@ pub fn check_nonce_mini_pow(&self, nonce: u64) -> Result<(), String> {
         Err(e) => return Err(e),
     };
 
+    // Check if the length is exactly 8 bytes
+    if first_8_bytes.len() != 8 {
+        return Err("The returned hash does not have exactly 8 bytes".into());
+    }
+
     println!("First 8 bytes of the SHA3 hash: {:?}", first_8_bytes);
 
     Ok(())
