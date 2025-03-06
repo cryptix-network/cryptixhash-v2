@@ -180,7 +180,6 @@ fn generate_dynamic_s_box(block_hash: &[u8]) -> Result<[u8; 256], &'static str> 
     Ok(s_box)
 }
 
-
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     // Check if the input hash is empty
     let block_hash_bytes = block_hash.as_bytes();
@@ -219,7 +218,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     // Main loop for dynamic rounds
     let mut product = [0u8; 32];
 
-    for _ in 0..dynamic_loops {
+    for round in 0..dynamic_loops {
         for i in 0..32 {
             let mut sum1 = 0u16;
             let mut sum2 = 0u16;
@@ -234,7 +233,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
                 // Ensure indices are valid
                 if 2 * i + 1 >= memory.len() {
-                    return Err("Memory index out of bounds (2 * i + 1)".to_string());
+                    return Err(format!("Memory index out of bounds (2 * i + 1) during round {}", round).to_string());
                 }
 
                 sum1 = sum1.wrapping_add((memory[2 * i] as u16).wrapping_mul(elem)); // Access to memory[2 * i]
@@ -247,8 +246,14 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
             sum2 = sum2.wrapping_add(mem_value as u16);
 
             // Apply non-linear transformations
-            let a_nibble = multi_layer_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF));
-            let b_nibble = multi_layer_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF));
+            let a_nibble = match multi_layer_s_box((sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF)) {
+                Ok(val) => val,
+                Err(e) => return Err(format!("Error in multi-layer S-Box (a_nibble) during round {}: {}", round, e)),
+            };
+            let b_nibble = match multi_layer_s_box((sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF)) {
+                Ok(val) => val,
+                Err(e) => return Err(format!("Error in multi-layer S-Box (b_nibble) during round {}: {}", round, e)),
+            };
 
             product[i] = (product[i] + ((a_nibble << 4) | b_nibble)) as u8;
         }
@@ -267,8 +272,11 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
         // index is within bounds
         let index = (block_hash_bytes[0] as usize) % memory.len();
-        memory[index] = new_memory_value;
+        if index >= memory.len() {
+            return Err(format!("Memory index out of bounds while modifying memory during round {}", round).to_string());
+        }
 
+        memory[index] = new_memory_value;
     }
 
     // Final XOR operation
@@ -283,7 +291,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     let mut result = product;
     for final_transformation in transformations.iter() {
         if final_transformation.len() != 32 {
-            return Err("Final transformation array length is not 32".to_string());
+            return Err(format!("Final transformation array length is not 32, found {}", final_transformation.len()).to_string());
         }
         for i in 0..32 {
             result[i] ^= final_transformation[i];
@@ -296,6 +304,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
         Err(_) => Err("Error occurred during final hash generation".to_string()),
     }
 }
+
 
 
 // ------------- TESTS
