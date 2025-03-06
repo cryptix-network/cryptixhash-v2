@@ -26,6 +26,7 @@
 // - Add anti-debugging techniques
 // - Add Runtime Decryption
 // - Add hash-based integrity check
+// - Operating system test (win + linux + hive ). No Linux embed systems (Bitstreams)
 
 
 extern "C" {
