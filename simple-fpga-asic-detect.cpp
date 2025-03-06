@@ -18,6 +18,16 @@
 // Real-time device communication: Monitoring actual communication and interaction between hardware components in the system.
 // Hardware identification via direct access: Identifying hardware components through direct access to system resources (e.g., through the PCI bus or low-level APIs).
 
+// Todo: 
+// - Add Windows compatibly
+// - Add Hardware Detection
+// - Add encryption
+// - Code Obfuscation on final Code
+// - Add anti-debugging techniques
+// - Add Runtime Decryption
+// - Add hash-based integrity check
+
+
 extern "C" {
     bool CheckFPGAOrASIC() {
         bool hardwareDetected = false;
