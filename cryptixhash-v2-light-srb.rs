@@ -95,39 +95,41 @@ fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
 }
 
 // Heavy Hash function
-pub fn heavy_hash(block_hash: Hash) -> Hash {
+pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     let mut memory = vec![0u8; H_MEM];
     let mut result = [0u32; 8];
 
     let block_hash_bytes = block_hash.as_bytes();
 
-
     if block_hash_bytes.len() != 32 {
-        panic!("Expected block hash of length 32 bytes, found: {}", block_hash_bytes.len());
+        return Err("Invalid block hash length: Expected 32 bytes".to_string());
     }
 
     let hash_bytes_sum: u32 = block_hash_bytes.iter().map(|&x| x as u32).sum(); // max 8160
     let sbox: [u8; 32] = generate_sbox(block_hash_bytes);
 
     // Fill memory based on block_hash
-    if let Err(e) = fill_memory(&block_hash_bytes, &mut memory) {
-        panic!("Error filling memory: {}", e);
-    }
+    fill_memory(&block_hash_bytes, &mut memory)
+        .map_err(|e| format!("Error filling memory: {}", e))?;
 
-    // Calculate the number of rounds [128 - 256]
-    let dynamic_loops = (u32::from_le_bytes(memory[0..4].try_into().unwrap_or_default()) % 128) + 128;
+    // Calculating the number of loops
+    let dynamic_loops = memory.get(0..4)
+        .ok_or_else(|| "Memory slice out of bounds".to_string())?
+        .try_into()
+        .map(u32::from_le_bytes)
+        .map(|v| (v % 128) + 128)
+        .map_err(|_| "Failed to convert memory slice to u32")?;
 
-    // Initial values for random indexes
+    // Initial values ​​for randomized indices
     for i in 0..8 {
         let pos = i * 4;
-        if pos + 3 >= block_hash_bytes.len() {
-            panic!("Index out of bounds while initializing result at index: {}", i);
-        }
+        let chunk = block_hash_bytes.get(pos..pos + 4)
+            .ok_or_else(|| "Index out of bounds while initializing result".to_string())?;
         result[i] = u32::from_le_bytes([
-            block_hash_bytes[pos],
-            block_hash_bytes[pos + 1],
-            block_hash_bytes[pos + 2],
-            block_hash_bytes[pos + 3],
+            chunk[0],
+            chunk[1],
+            chunk[2],
+            chunk[3],
         ]);
     }
 
@@ -143,13 +145,14 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
                 v = v.wrapping_add(hash_bytes_sum);
                 v ^= result[i];
 
-                // Write back new value to memory at same index
-                memory[pos] = (v & 0xFF) as u8;
-                memory[pos + 1] = ((v >> 8) & 0xFF) as u8;
-                memory[pos + 2] = ((v >> 16) & 0xFF) as u8;
-                memory[pos + 3] = ((v >> 24) & 0xFF) as u8;
+                // Safely write back to memory
+                if let Some(mem_chunk) = memory.get_mut(pos..pos + 4) {
+                    mem_chunk.copy_from_slice(&v.to_le_bytes());
+                } else {
+                    return Err(format!("Memory index out of bounds at position: {}", pos));
+                }
 
-                // Simple S-box
+                // S-Box Transformation
                 let b: [u8; 4] = v.to_le_bytes();
                 v = u32::from_le_bytes([
                     sbox[b[0] as usize & 0x1F],
@@ -160,13 +163,13 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 
                 result[i] = v;
             } else {
-                panic!("Memory index out of bounds at position: {}", pos);
+                return Err(format!("Memory index out of bounds at position: {}", pos));
             }
         }
     }
 
     // Final SHA3 Hash
-    CryptixHash::hash(Hash::from_bytes(u32_array_to_u8_array(result)))
+    Ok(CryptixHash::hash(Hash::from_bytes(u32_array_to_u8_array(result))))
 }
 
 // Proof-of-Work function
