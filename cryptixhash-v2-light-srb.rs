@@ -1,9 +1,15 @@
-const H_MEM: usize = 4 * 1024 * 1024;
+use sha3::{Sha3_256, Digest};
+use blake3::hash;
+use cryptix::CryptixHash;
+use cryptix::Hash;
+use cryptix::Uint256;
+
+const H_MEM: usize = 4 * 1024 * 1024; // Memory size 4MB
 const H_MEM_U32: usize = H_MEM / 4;
 const H_MUL: u32 = 1664525;
 const H_INC: u32 = 1013904223;
 
-// Helpers
+// Hashing Helpers
 
 fn sha3_hash(input: [u8; 32]) -> [u8; 32] {
     let mut sha3_hasher = Sha3_256::new();
@@ -33,46 +39,41 @@ fn bit_manipulations(data: &mut [u8; 32]) {
 
 fn byte_mixing(sha3_hash: &[u8; 32], b3_hash: &[u8; 32]) -> [u8; 32] {
     let mut temp_buf = [0u8; 32];
-
     for i in 0..32 {
         temp_buf[i] = sha3_hash[i] ^ b3_hash[i];
     }
-
     temp_buf
 }
 
 // Dynamic S-Box based on the block hash
 fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     let mut output = [0u8; 32];
-
     for i in 0..32 {
         output[i] = block_hash[i] ^ block_hash[(i + 1) % 32] ^ block_hash[(i + 31) % 32];
     }
-
     output
 }
 
+// Memory filling with state
 fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str> {
-    // Ensure memory length is a multiple of 4 (since each u32 is 4 bytes)
     if memory.len() % 4 != 0 {
         return Err("Memory length must be a multiple of 4 bytes");
     }
 
-    // Initialize state from the first 4 bytes of the seed
-    let mut state: u32 = ((seed[0] as u32) << 24) | ((seed[1] as u32) << 16) | ((seed[2] as u32) << 8) | (seed[3] as u32);
+    let mut state: u32 = ((seed[0] as u32) << 24)
+        | ((seed[1] as u32) << 16)
+        | ((seed[2] as u32) << 8)
+        | (seed[3] as u32);
     let num_elements = H_MEM_U32;
 
-    // Ensure memory size is sufficient
     if memory.len() < H_MEM {
         return Err("Memory buffer is too small");
     }
 
-    // Treat memory as a slice of u8 and write u32 values as bytes
     for i in 0..num_elements {
         let offset = i * 4;
         state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);
 
-        // Write the u32 state as 4 bytes (LE)
         memory[offset] = (state & 0xFF) as u8;
         memory[offset + 1] = ((state >> 8) & 0xFF) as u8;
         memory[offset + 2] = ((state >> 16) & 0xFF) as u8;
@@ -82,18 +83,18 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
     Ok(())
 }
 
+// Convert u32 array to u8 array
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
     let mut output = [0u8; 32];
-
     for (i, &value) in input.iter().enumerate() {
         let bytes = value.to_le_bytes();
         let offset = i * 4;
         output[offset..offset + 4].copy_from_slice(&bytes);
     }
-
     output
 }
 
+// Heavy Hash function
 pub fn heavy_hash(block_hash: Hash) -> Hash {
     let mut memory = vec![0u8; H_MEM];
     let mut result = [0u32; 8];
@@ -106,7 +107,6 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     }
 
     let hash_bytes_sum: u32 = block_hash_bytes.iter().map(|&x| x as u32).sum(); // max 8160
-
     let sbox: [u8; 32] = generate_sbox(block_hash_bytes);
 
     // Fill memory based on block_hash
@@ -166,18 +166,15 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
         }
     }
 
-    // cSHAKE256("HeavyHash") - final sha3
+    // Final SHA3 Hash
     CryptixHash::hash(Hash::from_bytes(u32_array_to_u8_array(result)))
 }
 
-
-// https://github.com/cryptix-network/rusty-cryptix/blob/main/consensus/pow/src/lib.rs
-
+// Proof-of-Work function
 #[inline]
 #[must_use]
 /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
 pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-    // https://github.com/cryptix-network/rusty-cryptix/blob/main/crypto/hashes/src/pow_hashers.rs#L52
     // cSHAKE256("ProofOfWorkHash") - initial sha3
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
 
