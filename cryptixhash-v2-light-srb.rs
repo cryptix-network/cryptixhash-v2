@@ -9,7 +9,7 @@ const H_MEM_U32: usize = H_MEM / 4;
 const H_MUL: u32 = 1664525;
 const H_INC: u32 = 1013904223;
 
-// Hashing Helpers
+// Helpers
 
 fn sha3_hash(input: [u8; 32]) -> [u8; 32] {
     let mut sha3_hasher = Sha3_256::new();
@@ -45,7 +45,7 @@ fn byte_mixing(sha3_hash: &[u8; 32], b3_hash: &[u8; 32]) -> [u8; 32] {
     temp_buf
 }
 
-// Dynamic S-Box based on the block hash
+// Dynamic S-Box based on hash
 fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     let mut output = [0u8; 32];
     for i in 0..32 {
@@ -83,7 +83,7 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
     Ok(())
 }
 
-// Convert u32 array to u8 array
+// Convert u32 to u8
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
     let mut output = [0u8; 32];
     for (i, &value) in input.iter().enumerate() {
@@ -101,7 +101,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 
     let block_hash_bytes = block_hash.as_bytes();
 
-    // Ensure the block hash length is correct
+
     if block_hash_bytes.len() != 32 {
         panic!("Expected block hash of length 32 bytes, found: {}", block_hash_bytes.len());
     }
@@ -137,7 +137,6 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             let mem_index = result[i] % H_MEM_U32 as u32;
             let pos = mem_index as usize * 4;
 
-            // Out of bounds protection using Option
             if let Some(chunk) = memory.get(pos..pos + 4) {
                 let mut v = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
 
@@ -178,7 +177,6 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     // cSHAKE256("ProofOfWorkHash") - initial sha3
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
 
-    // Ensure the hash is exactly 32 bytes
     let mut hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
 
     // Apply nonce-based manipulation on hash bytes
