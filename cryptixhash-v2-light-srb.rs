@@ -52,10 +52,10 @@ fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     output
 }
 
-fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) {
+fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str> {
     // Ensure memory length is a multiple of 4 (since each u32 is 4 bytes)
     if memory.len() % 4 != 0 {
-        panic!("Memory length must be a multiple of 4 bytes");
+        return Err("Memory length must be a multiple of 4 bytes");
     }
 
     // Initialize state from the first 4 bytes of the seed
@@ -64,7 +64,7 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) {
 
     // Ensure memory size is sufficient
     if memory.len() < H_MEM {
-        panic!("Memory buffer is too small, expected size: {}, found: {}", H_MEM, memory.len());
+        return Err("Memory buffer is too small");
     }
 
     // Treat memory as a slice of u8 and write u32 values as bytes
@@ -78,6 +78,8 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) {
         memory[offset + 2] = ((state >> 16) & 0xFF) as u8;
         memory[offset + 3] = ((state >> 24) & 0xFF) as u8;
     }
+
+    Ok(())
 }
 
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
@@ -108,7 +110,9 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
     let sbox: [u8; 32] = generate_sbox(block_hash_bytes);
 
     // Fill memory based on block_hash
-    fill_memory(&block_hash_bytes, &mut memory);
+    if let Err(e) = fill_memory(&block_hash_bytes, &mut memory) {
+        panic!("Error filling memory: {}", e);
+    }
 
     // Calculate the number of rounds [128 - 256]
     let dynamic_loops = (u32::from_le_bytes(memory[0..4].try_into().unwrap_or_default()) % 128) + 128;
@@ -133,32 +137,32 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
             let mem_index = result[i] % H_MEM_U32 as u32;
             let pos = mem_index as usize * 4;
 
-            // Out of bounds protection
-            if pos + 3 >= memory.len() {
+            // Out of bounds protection using Option
+            if let Some(chunk) = memory.get(pos..pos + 4) {
+                let mut v = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+                v = v.wrapping_add(hash_bytes_sum);
+                v ^= result[i];
+
+                // Write back new value to memory at same index
+                memory[pos] = (v & 0xFF) as u8;
+                memory[pos + 1] = ((v >> 8) & 0xFF) as u8;
+                memory[pos + 2] = ((v >> 16) & 0xFF) as u8;
+                memory[pos + 3] = ((v >> 24) & 0xFF) as u8;
+
+                // Simple S-box
+                let b: [u8; 4] = v.to_le_bytes();
+                v = u32::from_le_bytes([
+                    sbox[b[0] as usize & 0x1F],
+                    sbox[b[1] as usize & 0x1F],
+                    sbox[b[2] as usize & 0x1F],
+                    sbox[b[3] as usize & 0x1F],
+                ]);
+
+                result[i] = v;
+            } else {
                 panic!("Memory index out of bounds at position: {}", pos);
             }
-
-            let mut v = u32::from_le_bytes([memory[pos], memory[pos + 1], memory[pos + 2], memory[pos + 3]]);
-
-            v = v.wrapping_add(hash_bytes_sum);
-            v ^= result[i];
-
-            // Write back new value to memory at same index
-            memory[pos] = (v & 0xFF) as u8;
-            memory[pos + 1] = ((v >> 8) & 0xFF) as u8;
-            memory[pos + 2] = ((v >> 16) & 0xFF) as u8;
-            memory[pos + 3] = ((v >> 24) & 0xFF) as u8;
-
-            // Simple S-box
-            let b: [u8; 4] = v.to_le_bytes();
-            v = u32::from_le_bytes([
-                sbox[b[0] as usize & 0x1F],
-                sbox[b[1] as usize & 0x1F],
-                sbox[b[2] as usize & 0x1F],
-                sbox[b[3] as usize & 0x1F],
-            ]);
-
-            result[i] = v;
         }
     }
 
@@ -173,7 +177,7 @@ pub fn heavy_hash(block_hash: Hash) -> Hash {
 #[must_use]
 /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
 pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-    //https://github.com/cryptix-network/rusty-cryptix/blob/main/crypto/hashes/src/pow_hashers.rs#L52
+    // https://github.com/cryptix-network/rusty-cryptix/blob/main/crypto/hashes/src/pow_hashers.rs#L52
     // cSHAKE256("ProofOfWorkHash") - initial sha3
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
 
