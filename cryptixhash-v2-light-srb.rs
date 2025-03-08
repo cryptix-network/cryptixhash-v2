@@ -97,15 +97,25 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
     for i in 0..num_elements {
         let offset = i * 4;
         
-        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);
-        
-        state ^= u32::from_le_bytes(seed[(i % 32)..(i % 32 + 4)].try_into().unwrap_or_default());
-
+        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);    
+    
+        let start_idx = (i % 32);
+        let end_idx = (start_idx + 4) % 32;
+    
+        let slice = if end_idx > start_idx {
+            &seed[start_idx..end_idx]
+        } else {
+            [&seed[start_idx..], &seed[..end_idx]].concat()
+        };
+    
+        state ^= u32::from_le_bytes(slice.try_into().unwrap_or_default());
+    
         memory[offset] = (state & 0xFF) as u8;
         memory[offset + 1] = ((state >> 8) & 0xFF) as u8;
         memory[offset + 2] = ((state >> 16) & 0xFF) as u8;
         memory[offset + 3] = ((state >> 24) & 0xFF) as u8;
     }
+    
 
     Ok(())
 }
