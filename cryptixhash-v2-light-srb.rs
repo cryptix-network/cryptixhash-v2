@@ -1,9 +1,7 @@
 // # v2.1
-
-// v 2.0 to 2.1
-// Memory-Dependent Computation Addresses & calculations are constantly changing | GPUs can parallelize memory well
-// Round-Dependent Hash Variants ASICs/FPGAs need multiple hash cores | GPUs have flexible instructions
-// Indirect memory addressing FPGAs cannot optimize memory | CPUs & GPUs are built for dynamic memory access
+// Using XOR and rotation for additional manipulations
+// Complex storage filling function
+// Extension of the bit_manipulations function
 
 use sha3::{Sha3_256, Digest};
 use blake3::hash;
