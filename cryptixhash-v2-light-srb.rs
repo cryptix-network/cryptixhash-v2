@@ -4,9 +4,6 @@
 // Memory-Dependent Computation Addresses & calculations are constantly changing | GPUs can parallelize memory well
 // Round-Dependent Hash Variants ASICs/FPGAs need multiple hash cores | GPUs have flexible instructions
 // Indirect memory addressing FPGAs cannot optimize memory | CPUs & GPUs are built for dynamic memory access
-// Large register values ​​FPGAs have limited 64-bit registers | CPUs & GPUs have native 64-bit ALUs
-// Control flow interference FPGAs need complex logic | GPUs & CPUs have branch predictions
-
 
 use sha3::{Sha3_256, Digest};
 use blake3::hash;
@@ -20,7 +17,6 @@ const H_MUL: u32 = 1664525;
 const H_INC: u32 = 1013904223;
 
 // Helper functions
-
 fn sha3_hash(input: [u8; 32]) -> [u8; 32] {
     let mut sha3_hasher = Sha3_256::new();
     sha3_hasher.update(&input);
@@ -127,7 +123,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
         .ok_or_else(|| "Memory slice out of bounds".to_string())?
         .try_into()
         .map(u32::from_le_bytes)
-        .map(|v| (v % 128) + 128)
+        .map(|v| (v % 128) + 128) // Adding variability in loops
         .map_err(|_| "Failed to convert memory slice to u32")?;
 
     // Initial values ​​for randomized indices
@@ -143,9 +139,10 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
         ]);
     }
 
+    // Loop through dynamic rounds
     for _ in 0..dynamic_loops {
         for i in 0..8 {
-            // Get random u32 from memory
+            // Indirect memory addressing: Get random u32 from memory
             let mem_index = result[i] % H_MEM_U32 as u32;
             let pos = mem_index as usize * 4;
 
@@ -230,6 +227,7 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     // Convert final hash to Uint256 and return
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
+
 
 
 // --------------------------------------------
