@@ -33,7 +33,7 @@ fn calculate_b3_rounds(input: [u8; 32]) -> usize {
     let slice = &input[4..8];
     if slice.len() == 4 {
         let value = u32::from_le_bytes(slice.try_into().unwrap());
-        (value % 3 + 2) as usize
+        (value % 3 + 1) as usize
     } else {
         panic!("Input slice for Blake3 rounds is invalid");
     }
@@ -44,7 +44,7 @@ fn calculate_sha3_rounds(input: [u8; 32]) -> usize {
     let slice = &input[8..12];
     if slice.len() == 4 {
         let value = u32::from_le_bytes(slice.try_into().unwrap());
-        (value % 3 + 2) as usize
+        (value % 3 + 1) as usize
     } else {
         panic!("Input slice for SHA3 rounds is invalid");
     }
