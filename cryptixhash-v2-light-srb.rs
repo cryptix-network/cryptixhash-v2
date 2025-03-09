@@ -8,7 +8,6 @@ use blake3::hash;
 use cryptix::CryptixHash;
 use cryptix::Hash;
 use cryptix::Uint256;
-use bytemuck::cast_slice;
 
 const H_MEM: usize = 4 * 1024 * 1024; // Memory size 4MB
 const H_MEM_U32: usize = H_MEM / 4;
@@ -125,33 +124,57 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
 */
 
 
+// Convert `seed` into a `u32`
+fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
+    let mut result = [0u32; 8];
+    for i in 0..8 {
+        let offset = i * 4;
+        result[i] = u32::from_le_bytes([
+            seed[offset],
+            seed[offset + 1],
+            seed[offset + 2],
+            seed[offset + 3],
+        ]);
+    }
+    result
+}
+
 // Memory filling with state
 fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str> {
+    // memory length is a multiple of 4 bytes
     if memory.len() % 4 != 0 {
         return Err("Memory length must be a multiple of 4 bytes");
     }
 
-    let seed_words: &[u32] = cast_slice(seed);
+    // seed into `u32` words
+    let seed_words = convert_seed_to_u32(seed); 
 
-    let mut state: u32 = seed_words[0]; 
     let num_elements = H_MEM_U32;
 
+    //  memory buffer is large enough
     if memory.len() < H_MEM {
         return Err("Memory buffer is too small");
     }
 
+    let mut state: u32 = seed_words[0]; 
+
     for i in 0..num_elements {
         let offset = i * 4;
-        
+
+        // mixing function (multiplying and adding constants)
         state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);    
 
-        state ^= seed_words[i % seed_words.len()];
+        // XOR with a seed value
+        state ^= seed_words[i % 8];
 
-        memory[offset..offset + 4].copy_from_slice(&state.to_le_bytes());
+        // Directly write to memory using slicing
+        let chunk = &mut memory[offset..offset + 4];
+        chunk.copy_from_slice(&state.to_le_bytes());
     }
 
     Ok(())
 }
+
 
 
 // Convert u32 to u8
