@@ -282,7 +282,7 @@ fn process_memory_and_update_result(
             result[i] = result[i] / 0x9A3D2F5B;
         },
         11 => {
-            // Case 11: XOR with a derived value from memory byte sum (deterministic)
+            // Case 11: XOR with a derived value from memory byte sum 
             let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
             result[i] ^= memory_sum;
         },
@@ -296,9 +296,9 @@ fn process_memory_and_update_result(
             result[i] ^= hash_bytes_sum;
         },
         14 => {
-            // Case 14: Invert the bits and add a small constant (deterministic)
+            // Case 14: Invert the bits and add a small constant
             result[i] = !processed_value;
-            result[i] = result[i].wrapping_add(0x00000001); // Add a small deterministic constant
+            result[i] = result[i].wrapping_add(0x00000001); 
         },
         15 => {
             // Case 15: Use a combination of hash_bytes_sum and a hash to apply bitwise shifts and XOR
@@ -314,7 +314,7 @@ fn process_memory_and_update_result(
         }
     }
 
-    // Perform memory randomization based on the memory index and hash bytes sum (still deterministic)
+    // Perform memory randomization based on the memory index and hash bytes sum 
     randomize_memory(memory, mem_index, hash_bytes_sum)?;
 
     // Update the result array with the processed value
