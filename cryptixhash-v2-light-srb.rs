@@ -77,7 +77,6 @@ fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     output
 }
 
-
 /*
 // Memory filling with state
 fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str> {
@@ -122,7 +121,6 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
     Ok(())
 }
 */
-
 
 // Convert `seed` into a `u32`
 fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
@@ -174,8 +172,6 @@ fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str
 
     Ok(())
 }
-
-
 
 // Convert u32 to u8
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
