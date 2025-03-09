@@ -207,6 +207,8 @@ fn randomize_memory(memory: &mut Vec<u8>, mem_index: u32, hash_bytes_sum: u32) -
     Ok(())
 }
 
+
+/*
 // Process memory with cases - with much love
 fn process_memory_and_update_result(
     i: usize,
@@ -348,6 +350,153 @@ fn process_memory_and_update_result(
 
     Ok(())
 }
+*/
+
+
+// Process memory with cases - with much more love
+fn process_memory_and_update_result(
+    i: usize,
+    result: &mut [u32; 8],
+    memory: &mut Vec<u8>,
+    hash_bytes_sum: u32,
+    sbox: &[u8; 32]
+) -> Result<(), String> {
+    // Calculate the memory index and position
+    let (mem_index, pos) = calculate_mem_index_and_pos(result[i], result[(i + 3) % 8]);
+
+    // Process the memory chunk
+    let processed_value = process_memory_chunk_in_place(memory, pos, hash_bytes_sum, result[i], sbox)?;
+
+    // Branch based on result[i] % 20 to support 20 different cases (0 through 19)
+    match result[i] % 20 {
+        0 => {
+            // Case 0: Intentional XOR misalignment and high-latency multiplication
+            result[i] ^= 0xDEADBEEF;
+            result[i] = result[i].wrapping_mul(0xACDCACDC);
+        },
+        1 => {
+            // Case 1: Bitwise NOT followed by unpredictable AND mask
+            result[i] = !processed_value;
+            result[i] &= (hash_bytes_sum | 0xFF00FF00);
+        },
+        2 => {
+            // Case 2: Chained dependencies - addition, multiplication, and rotation
+            result[i] = processed_value.wrapping_add(hash_bytes_sum);
+            result[i] = result[i].wrapping_mul(0x12345678);
+            result[i] = result[i].rotate_left(result[i] as u32 % 31);
+        },
+        3 => {
+            // Case 3: Memory-dependent modulo and division 
+            result[i] = processed_value / (memory[mem_index % memory.len()] as u32 + 1);
+            result[i] = result[i] % 0xABCDEF01;
+        },
+        4 => {
+            // Case 4: Hash-dependent shifting and unpredictable XOR
+            result[i] = processed_value.wrapping_add(i as u32);
+            result[i] ^= processed_value.rotate_left(hash_bytes_sum as u32 % 17);
+            result[i] = result[i].rotate_right((memory[pos % memory.len()] % 8) as u32);
+        },
+        5 => {
+            // Case 5: Forced global memory dependencies
+            let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
+            result[i] ^= memory_sum;
+            result[i] ^= (hash_bytes_sum.rotate_left(8) ^ processed_value);
+        },
+        6 => {
+            // Case 6: XOR cascade combined with volatile memory-based mask
+            result[i] = processed_value.wrapping_sub(0x7A3F0D1E);
+            result[i] |= memory[mem_index % memory.len()] as u32;
+        },
+        7 => {
+            // Case 7: FPGA-hostile dynamic shifting and unpredictable masking
+            result[i] = processed_value.rotate_right((result[(i + 2) % 8] % 16) as u32);
+            result[i] &= (hash_bytes_sum | 0x0F0F0F0F);
+        },
+        8 => {
+            // Case 8: Self-referential XOR and memory-seeded arithmetic
+            result[i] ^= i as u32;
+            result[i] = result[i].wrapping_add(memory[(mem_index / 2) % memory.len()] as u32);
+        },
+        9 => {
+            // Case 9: Multi-stage rotation and multiplication with non-trivial XOR
+            result[i] = processed_value.rotate_left((memory[mem_index % memory.len()] % 24) as u32);
+            result[i] = result[i].wrapping_mul(0x7E1F9C3D);
+            result[i] ^= processed_value;
+        },
+        10 => {
+            // Case 10: Memory-driven modulo, forcing unpredictable routing
+            result[i] = processed_value % (memory[pos % memory.len()] as u32 + 1);
+            result[i] = result[i].wrapping_mul(0x13579BDF);
+        },
+        11 => {
+            // Case 11: Memory sum hash blending with rotation-based scrambling
+            let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
+            result[i] ^= memory_sum;
+            result[i] = result[i].rotate_left((hash_bytes_sum % 14) as u32);
+        },
+        12 => {
+            // Case 12: Constant addition followed by shifting chaos
+            result[i] = processed_value.wrapping_add(0xCAFEBABE);
+            result[i] = result[i].rotate_right(result[(i + 1) % 8] % 32);
+        },
+        13 => {
+            // Case 13: Deep bitwise XOR mixing with non-trivial rotation
+            result[i] ^= 0xBADC0FFEE;
+            result[i] = result[i].rotate_left(i as u32 ^ (memory[mem_index % memory.len()] as u32));
+        },
+        14 => {
+            // Case 14: Bitwise inversion and floating mask application
+            result[i] = !processed_value;
+            result[i] ^= memory[(mem_index * 3) % memory.len()] as u32;
+        },
+        15 => {
+            // Case 15: XOR-based mutation and forced AND dependency
+            result[i] &= 0xFFFFFF00;
+            result[i] = result[i].wrapping_mul((processed_value % 0x5A5A5A5A) + 1);
+        },
+        16 => {
+            // Case 16: Highly variable rotation depth based on processed data
+            result[i] = processed_value.rotate_right((result[i] % 31) as u32);
+            result[i] = result[i].wrapping_add(0x1A2B3C4D);
+        },
+        17 => {
+            // Case 17: Recursive shifting pattern with XOR scrambling
+            result[i] ^= 0x0F0F0F0F;
+            result[i] = result[i].rotate_right(((processed_value & 7) + 1) as u32);
+        },
+        18 => {
+            // Case 18: Unpredictable OR masking, addition, and rotation
+            result[i] |= 0xF0F0F0F0;
+            result[i] = result[i].wrapping_add(memory[(mem_index / 4) % memory.len()] as u32);
+            result[i] = result[i].rotate_left(10);
+        },
+        19 => {
+            // Case 19: Hash-based unpredictable scrambling
+            result[i] = processed_value.wrapping_add(hash_bytes_sum);
+            result[i] = result[i].rotate_left((i as u32 + hash_bytes_sum) % 32);
+            result[i] ^= 0x1234ABCD;
+        },
+        _ => {
+            // Default case: No change if something unexpected happens
+            result[i] = processed_value;
+        }
+    }
+
+    // Extra unpredictable bitwise mutation
+    let complex_op = processed_value.wrapping_mul(0xABCDEF);
+    result[i] ^= complex_op.rotate_right(8);
+
+    // Memory chaos to break parallel processing
+    randomize_memory(memory, mem_index, hash_bytes_sum)?;
+
+    // Update result array
+    result[i] = processed_value;
+
+    Ok(())
+}
+
+
+
 
 // Main heavy_hash function
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
