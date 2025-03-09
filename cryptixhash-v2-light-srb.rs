@@ -1,3 +1,278 @@
+// ### V 2.2
+
+use sha3::{Sha3_256, Digest};
+use blake3::hash;
+use cryptix::CryptixHash;
+use cryptix::Hash;
+use cryptix::Uint256;
+
+const H_MEM: usize = 4 * 1024 * 1024; // Memory size 4MB
+const H_MEM_U32: usize = H_MEM / 4; // Memory size in u32 elements
+const H_MUL: u32 = 1664525; // Multiplier used in the state update function
+const H_INC: u32 = 1013904223; // Increment used in the state update function
+
+// SHA3-256 Hash Function
+fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
+    let mut sha3_hasher = Sha3_256::new();
+    sha3_hasher.update(&input);
+    let hash = sha3_hasher.finalize();
+    hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".to_string())
+}
+
+// Blake3 Hash Function
+fn blake3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
+    let hash = blake3::hash(&input);
+    hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".to_string())
+}
+
+// Calculate Blake3 rounds based on input
+fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
+    let slice = &input[4..8];
+
+    if slice.len() == 4 {
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
+    } else {
+        Err("Input slice for Blake3 rounds is invalid".to_string())
+    }
+}
+
+// Calculate SHA3 rounds based on input
+fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
+    let slice = &input[8..12];
+
+    if slice.len() == 4 {
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
+    } else {
+        Err("Input slice for SHA3 rounds is invalid".to_string())
+    }
+}
+
+// Bitwise manipulations on data
+fn bit_manipulations(data: &mut [u8; 32]) {
+    for i in 0..32 {
+        data[i] ^= data[(i + 1) % 32]; // XOR with the next byte (circularly)
+        data[i] = data[i].rotate_left(3); // Rotate left by 3 bits
+        data[i] ^= (i as u8); // XOR with the index value
+    }
+}
+
+// Mix SHA3 and Blake3 hashes by XORing their bytes.
+fn byte_mixing(sha3_hash: &[u8; 32], b3_hash: &[u8; 32]) -> [u8; 32] {
+    let mut temp_buf = [0u8; 32];
+    for i in 0..32 {
+        temp_buf[i] = sha3_hash[i] ^ b3_hash[i]; // XOR byte by byte
+    }
+    temp_buf
+}
+
+// Dynamic S-Box based on hash
+fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
+    let mut output = [0u8; 32];
+    for i in 0..32 {
+        output[i] = block_hash[i] ^ block_hash[(i + 1) % 32] ^ block_hash[(i + 31) % 32]; // Create S-box using XOR with neighbors
+    }
+    output
+}
+
+// Convert `seed` into a `u32` array
+fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
+    let mut result = [0u32; 8];
+    for i in 0..8 {
+        let offset = i * 4;
+        result[i] = u32::from_le_bytes([
+            seed[offset],
+            seed[offset + 1],
+            seed[offset + 2],
+            seed[offset + 3],
+        ]);
+    }
+    result
+}
+
+// Memory filling with state
+fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), String> {
+    if memory.len() % 4 != 0 {
+        return Err("Memory length must be a multiple of 4 bytes".to_string()); // Check if memory size is a multiple of 4 bytes
+    }
+
+    let seed_words = convert_seed_to_u32(seed); // Convert seed to u32 array
+    let num_elements = H_MEM_U32;
+
+    if memory.len() < H_MEM {
+        return Err("Memory buffer is too small".to_string()); // Check if memory is large enough
+    }
+
+    let mut state: u32 = seed_words[0]; // Initial state set by the first element of seed
+
+    for i in 0..num_elements {
+        let offset = i * 4;
+        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC); // Update state with multiplication and increment
+        state ^= seed_words[i % 8]; // XOR with seed word based on current index
+
+        let chunk = &mut memory[offset..offset + 4]; // Memory chunk to update
+        chunk.copy_from_slice(&state.to_le_bytes()); // Copy the updated state into memory
+    }
+
+    Ok(())
+}
+
+// Convert u32 to u8 array
+fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
+    let mut output = [0u8; 32];
+    for (i, &value) in input.iter().enumerate() {
+        let bytes = value.to_le_bytes();
+        let offset = i * 4;
+        output[offset..offset + 4].copy_from_slice(&bytes); // Convert each u32 to bytes and store in output
+    }
+    output
+}
+
+// Heavy Hash function
+pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
+    let mut memory = vec![0u8; H_MEM];
+    let mut result = [0u32; 8];
+
+    let block_hash_bytes = block_hash.as_bytes();
+
+    if block_hash_bytes.len() != 32 {
+        return Err("Invalid block hash length: Expected 32 bytes".to_string()); // Check if block hash is the correct size
+    }
+
+    let hash_bytes_sum: u32 = block_hash_bytes.iter().map(|&x| x as u32).sum(); // Sum of bytes for further use
+    let sbox: [u8; 32] = generate_sbox(block_hash_bytes); // Generate dynamic S-Box from block hash
+
+    // Fill memory with state based on block hash
+    fill_memory(&block_hash_bytes, &mut memory)
+        .map_err(|e| format!("Error filling memory: {}", e))?;
+
+    // Calculating the number of loops dynamically based on memory
+    let dynamic_loops = memory.get(0..4)
+        .ok_or_else(|| "Memory slice out of bounds".to_string())?
+        .try_into()
+        .map(u32::from_le_bytes)
+        .map(|v| (v % 128) + 128) // Add variability to the number of loops
+        .map_err(|_| "Failed to convert memory slice to u32")?;
+
+    // Initializing result with block hash bytes
+    for i in 0..8 {
+        let pos = i * 4;
+        let chunk = block_hash_bytes.get(pos..pos + 4)
+            .ok_or_else(|| "Index out of bounds while initializing result".to_string())?;
+        result[i] = u32::from_le_bytes([
+            chunk[0],
+            chunk[1],
+            chunk[2],
+            chunk[3],
+        ]);
+    }
+
+    // Loop through dynamic rounds
+    for _ in 0..dynamic_loops {
+        for i in 0..8 {
+            let mem_index = result[i] % H_MEM_U32 as u32; // Get index from result for memory lookup
+            let pos = mem_index as usize * 4;
+
+            if let Some(chunk) = memory.get(pos..pos + 4) {
+                let mut v = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+
+                v = v.wrapping_add(hash_bytes_sum); // Add hash bytes sum to value
+                v ^= result[i]; // XOR with result
+
+                // Safely write back to memory
+                if let Some(mem_chunk) = memory.get_mut(pos..pos + 4) {
+                    mem_chunk.copy_from_slice(&v.to_le_bytes()); // Write transformed value back into memory
+                } else {
+                    return Err(format!("Memory index out of bounds at position: {}", pos));
+                }
+
+                // S-Box Transformation
+                let b: [u8; 4] = v.to_le_bytes();
+                v = u32::from_le_bytes([
+                    sbox[b[0] as usize & 0x1F], 
+                    sbox[b[1] as usize & 0x1F],
+                    sbox[b[2] as usize & 0x1F],
+                    sbox[b[3] as usize & 0x1F],
+                ]);
+
+                result[i] = v; // Update result with new value
+            } else {
+                return Err(format!("Memory index out of bounds at position: {}", pos));
+            }
+        }
+    }
+
+    // Final SHA3 Hash
+    Ok(CryptixHash::hash(Hash::from_bytes(u32_array_to_u8_array(result))))
+}
+
+// Proof-of-Work function
+#[inline]
+#[must_use]
+/// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+    // cSHAKE256("ProofOfWorkHash") - Initial SHA3 hash to start the process
+    let hash = self.hasher.clone().finalize_with_nonce(nonce);
+
+    let mut hash_bytes: [u8; 32];
+    match hash.as_bytes().try_into() {
+        Ok(bytes) => hash_bytes = bytes,
+        Err(_) => {
+            println!("Hash output length mismatch");
+            return Uint256::default();  
+        }
+    }
+
+    // Complex manipulation based on the nonce
+    for i in 0..32 {
+        // XOR the byte with the nonce, adding an index-based offset
+        hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
+        
+        // Apply a 4-bit left rotation to further mix the byte
+        hash_bytes[i] = hash_bytes[i].rotate_left(4); // Rotate by 4 bits to the left
+    }
+
+    // Calculate the number of rounds for both Blake3 and SHA3
+    let b3_rounds = calculate_b3_rounds(hash_bytes);
+    let sha3_rounds = calculate_sha3_rounds(hash_bytes);
+
+    let mut sha3_hash: [u8; 32];
+    let mut b3_hash: [u8; 32];
+    let mut m_hash: [u8; 32];
+
+    // Perform Blake3 rounds with bitwise manipulations
+    for _ in 0..b3_rounds {
+        // Apply Blake3 hash to the current hash bytes
+        hash_bytes = blake3_hash(hash_bytes);
+        // Apply additional bit manipulations to the hash
+        bit_manipulations(&mut hash_bytes);
+    }
+
+    b3_hash = hash_bytes; // Store the result of the Blake3 hash
+
+    // Perform SHA3 rounds with bitwise manipulations
+    for _ in 0..sha3_rounds {
+        // Apply SHA3 hash to the current hash bytes
+        hash_bytes = sha3_hash(hash_bytes);
+        // Apply additional bit manipulations to the hash
+        bit_manipulations(&mut hash_bytes);
+    }
+
+    sha3_hash = hash_bytes; // Store the result of the SHA3 hash
+
+    // Mix the results from SHA3 and Blake3 to combine the outputs
+    m_hash = byte_mixing(&sha3_hash, &b3_hash);
+
+    // Perform the final heavy hash transformation on the mixed result
+    let final_hash = heavy_hash(Hash::from(m_hash));
+
+    // Convert the final hash to Uint256 and return the result
+    Uint256::from_le_bytes(final_hash.as_bytes())
+}
+
+// -----------------------------
+
 // # v2.1
 // Using XOR and rotation for additional manipulations
 // Complex storage filling function
