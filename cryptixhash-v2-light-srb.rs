@@ -74,19 +74,23 @@ fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     output
 }
 
-fn derive_dynamic_values(block_hash: [u8; 32]) -> (u32, u32) {
-    // Split the block hash into two parts (e.g., 16 bytes for H_MUL and 16 bytes for H_INC)
+// Dynamic h_mul and h_inc
+fn derive_dynamic_values(block_hash: [u8; 32]) -> Result<(u32, u32), String> {
     let part1 = &block_hash[0..16];
     let part2 = &block_hash[16..32];
 
-    // Convert the parts into u32 values
-    let h_mul = u32::from_le_bytes(part1.try_into().expect("Failed to convert part1"));
-    let h_inc = u32::from_le_bytes(part2.try_into().expect("Failed to convert part2"));
+    let h_mul = u32::from_le_bytes(
+        part1.try_into().map_err(|_| "Failed to convert part1".to_string())?,
+    );
+    let h_inc = u32::from_le_bytes(
+        part2.try_into().map_err(|_| "Failed to convert part2".to_string())?,
+    );
 
-    // H_MUL and H_INC
-    (h_mul, h_inc)
+    let h_mul = if h_mul == 0 { 1 } else { h_mul };
+    let h_inc = if h_inc == 0 { 1 } else { h_inc };
+
+    Ok((h_mul, h_inc))
 }
-
 
 // Convert `seed` into a `u32` array
 fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
