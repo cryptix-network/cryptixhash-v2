@@ -15,40 +15,46 @@ const H_MUL: u32 = 1664525;
 const H_INC: u32 = 1013904223;
 
 // SHA3-256 Hash Function
-fn sha3_hash(input: [u8; 32]) -> [u8; 32] {
+fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
     let mut sha3_hasher = Sha3_256::new();
     sha3_hasher.update(&input);
     let hash = sha3_hasher.finalize();
-    hash.as_slice().try_into().expect("SHA-3 output length mismatch")
+    hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".to_string())
 }
+
 
 // Blake3 Hash Function
-fn blake3_hash(input: [u8; 32]) -> [u8; 32] {
+fn blake3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
     let hash = blake3::hash(&input);
-    hash.as_bytes().try_into().expect("BLAKE3 output length mismatch")
+    hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".to_string())
 }
+
 
 // Calculate Blake3 rounds based on input
-fn calculate_b3_rounds(input: [u8; 32]) -> usize {
+fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
     let slice = &input[4..8];
+
     if slice.len() == 4 {
-        let value = u32::from_le_bytes(slice.try_into().unwrap());
-        (value % 3 + 1) as usize
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) 
     } else {
-        panic!("Input slice for Blake3 rounds is invalid");
+        Err("Input slice for Blake3 rounds is invalid".to_string()) 
     }
 }
 
+
 // Calculate SHA3 rounds based on input
-fn calculate_sha3_rounds(input: [u8; 32]) -> usize {
+fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
     let slice = &input[8..12];
+
     if slice.len() == 4 {
-        let value = u32::from_le_bytes(slice.try_into().unwrap());
-        (value % 3 + 1) as usize
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) 
     } else {
-        panic!("Input slice for SHA3 rounds is invalid");
+        Err("Input slice for SHA3 rounds is invalid".to_string())
     }
 }
+
 
 // Bitwise manipulations on data
 fn bit_manipulations(data: &mut [u8; 32]) {
@@ -138,40 +144,32 @@ fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
 }
 
 // Memory filling with state
-fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), &'static str> {
-    // memory length is a multiple of 4 bytes
+fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), String> {
     if memory.len() % 4 != 0 {
-        return Err("Memory length must be a multiple of 4 bytes");
+        return Err("Memory length must be a multiple of 4 bytes".to_string());
     }
 
-    // seed into `u32` words
-    let seed_words = convert_seed_to_u32(seed); 
-
+    let seed_words = convert_seed_to_u32(seed);
     let num_elements = H_MEM_U32;
 
-    //  memory buffer is large enough
     if memory.len() < H_MEM {
-        return Err("Memory buffer is too small");
+        return Err("Memory buffer is too small".to_string());
     }
 
-    let mut state: u32 = seed_words[0]; 
+    let mut state: u32 = seed_words[0];
 
     for i in 0..num_elements {
         let offset = i * 4;
-
-        // mixing function (multiplying and adding constants)
-        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);    
-
-        // XOR with a seed value
+        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC);
         state ^= seed_words[i % 8];
 
-        // Directly write to memory using slicing
         let chunk = &mut memory[offset..offset + 4];
         chunk.copy_from_slice(&state.to_le_bytes());
     }
 
     Ok(())
 }
+
 
 // Convert u32 to u8
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
@@ -194,6 +192,7 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
     if block_hash_bytes.len() != 32 {
         return Err("Invalid block hash length: Expected 32 bytes".to_string());
     }
+
 
     let hash_bytes_sum: u32 = block_hash_bytes.iter().map(|&x| x as u32).sum(); // max 8160
     let sbox: [u8; 32] = generate_sbox(block_hash_bytes);
@@ -271,7 +270,14 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     // cSHAKE256("ProofOfWorkHash") - Initial SHA3 hash to start the process
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
 
-    let mut hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
+    let mut hash_bytes: [u8; 32];
+    match hash.as_bytes().try_into() {
+        Ok(bytes) => hash_bytes = bytes,
+        Err(_) => {
+            println!("Hash output length mismatch");
+            return Uint256::default();  
+        }
+    }
 
     // Complex manipulation based on the nonce
     for i in 0..32 {
@@ -338,17 +344,20 @@ const H_INC: u32 = 1013904223;
 
 // Helpers
 
-fn sha3_hash(input: [u8; 32]) -> [u8; 32] {
+fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
     let mut sha3_hasher = Sha3_256::new();
     sha3_hasher.update(&input);
     let hash = sha3_hasher.finalize();
-    hash.as_slice().try_into().expect("SHA-3 output length mismatch")
+
+    hash.as_slice().try_into().map_err(|_| "SHA-3 output length mismatch".to_string())
 }
 
-fn blake3_hash(input: [u8; 32]) -> [u8; 32] {
+
+fn blake3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
     let hash = blake3::hash(&input);
-    hash.as_bytes().try_into().expect("BLAKE3 output length mismatch")
+    hash.as_bytes().try_into().map_err(|_| "BLAKE3 output length mismatch".to_string())
 }
+
 
 fn calculate_b3_rounds(input: [u8; 32]) -> usize {
     ((u32::from_le_bytes(input[4..8].try_into().unwrap_or_default()) % 3) + 2) as usize
@@ -507,7 +516,14 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     // cSHAKE256("ProofOfWorkHash") - initial sha3
     let hash = self.hasher.clone().finalize_with_nonce(nonce);
 
-    let mut hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
+    let mut hash_bytes: [u8; 32];
+    match hash.as_bytes().try_into() {
+        Ok(bytes) => hash_bytes = bytes,
+        Err(_) => {
+            println!("Hash output length mismatch");
+            return Uint256::default(); 
+        }
+    }
 
     // Apply nonce-based manipulation on hash bytes
     for i in 0..32 {
