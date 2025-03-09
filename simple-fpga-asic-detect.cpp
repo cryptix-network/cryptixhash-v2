@@ -22,8 +22,8 @@
 // - Add Windows compatibly
 // - Add Hardware Detection
 // - Add encryption
-// - Code Obfuscation on final Code
-// - Add anti-debugging techniques
+// - Integrate the Hash Function for the POW
+// - Integrate the dyn Data for non-manipulation
 // - Add Runtime Decryption
 // - Add hash-based integrity check
 // - Operating system test (win + linux + hive ). No Linux embed systems (Bitstreams)
