@@ -207,7 +207,6 @@ fn randomize_memory(memory: &mut Vec<u8>, mem_index: u32, hash_bytes_sum: u32) -
     Ok(())
 }
 
-
 // Process memory with cases and update result
 fn process_memory_and_update_result(
     i: usize,
@@ -322,10 +321,6 @@ fn process_memory_and_update_result(
 
     Ok(())
 }
-
-
-
-
 
 // Main heavy_hash function
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
