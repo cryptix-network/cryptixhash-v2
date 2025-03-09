@@ -92,8 +92,8 @@ fn derive_dynamic_values(block_hash: [u8; 32]) -> Result<(u32, u32), String> {
         part2.try_into().map_err(|_| "Failed to convert part2".to_string())?,
     );
 
-    let h_mul = if h_mul == 0 { 1 } else { h_mul };
-    let h_inc = if h_inc == 0 { 1 } else { h_inc };
+    let h_mul = if h_mul == 0 { 1664525 } else { h_mul };
+    let h_inc = if h_inc == 0 { 1013904223 } else { h_inc };
 
     Ok((h_mul, h_inc))
 }
@@ -207,7 +207,8 @@ fn randomize_memory(memory: &mut Vec<u8>, mem_index: u32, hash_bytes_sum: u32) -
     Ok(())
 }
 
-// Process memory and update result
+
+// Process memory with cases and update result
 fn process_memory_and_update_result(
     i: usize,
     result: &mut [u32; 8],
@@ -215,20 +216,116 @@ fn process_memory_and_update_result(
     hash_bytes_sum: u32,
     sbox: &[u8; 32]
 ) -> Result<(), String> {
-    // Calculate memory index and position
+    // Calculate the memory index and position
     let (mem_index, pos) = calculate_mem_index_and_pos(result[i], result[(i + 3) % 8]);
 
     // Process the memory chunk
     let processed_value = process_memory_chunk_in_place(memory, pos, hash_bytes_sum, result[i], sbox)?;
 
-    // Memory randomization
+    // Branching based on result[i] % 16 to support 16 different cases (0 through 15)
+    match result[i] % 16 {
+        0 => {
+            // Case 0: Rotate left by 8 bits and XOR with the hash bytes sum
+            result[i] = processed_value.rotate_left(8);
+            result[i] ^= hash_bytes_sum;
+        },
+        1 => {
+            // Case 1: Rotate right by 16 bits, then add a constant value
+            result[i] = processed_value.rotate_right(16);
+            result[i] = result[i].wrapping_add(0xA1B2C3D4);
+        },
+        2 => {
+            // Case 2: Apply bitwise NOT, followed by AND operation with a mask
+            result[i] = !processed_value;
+            result[i] &= 0xFF00FF00;
+        },
+        3 => {
+            // Case 3: Multiply by a prime number and apply modulo operation
+            result[i] = processed_value.wrapping_mul(0xB7D3F5E9);
+            result[i] = result[i] % 0xFFFFFFF1;
+        },
+        4 => {
+            // Case 4: XOR with a rotating key and rotate left by 12 bits
+            let rotating_key = 0x12345678u32.rotate_left((i % 8) as u32);
+            result[i] ^= rotating_key;
+            result[i] = result[i].rotate_left(12);
+        },
+        5 => {
+            // Case 5: Apply a simple hash (e.g., SHA256) on the result and XOR it
+            let sha256_result = sha256::digest(&result[i].to_le_bytes());
+            let hash_value = u32::from_le_bytes(sha256_result[0..4].try_into().unwrap());
+            result[i] ^= hash_value;
+        },
+        6 => {
+            // Case 6: Add the index and perform a bitwise OR with a mask
+            result[i] = processed_value.wrapping_add(i as u32);
+            result[i] |= 0x0F0F0F0F;
+        },
+        7 => {
+            // Case 7: Subtract a constant and rotate right by 4 bits
+            result[i] = processed_value.wrapping_sub(0xC0C0C0C0);
+            result[i] = result[i].rotate_right(4);
+        },
+        8 => {
+            // Case 8: XOR with left rotate by i % 16 and add a constant
+            result[i] ^= processed_value.rotate_left((i % 16) as u32);
+            result[i] = result[i].wrapping_add(0x55555555);
+        },
+        9 => {
+            // Case 9: AND with a mask, followed by a left shift
+            result[i] &= 0x0F0F0F0F;
+            result[i] = result[i].rotate_left(8);
+        },
+        10 => {
+            // Case 10: Multiply by a constant prime and divide by a large number
+            result[i] = processed_value.wrapping_mul(0x7F3E9B1D);
+            result[i] = result[i] / 0x9A3D2F5B;
+        },
+        11 => {
+            // Case 11: XOR with a derived value from memory byte sum (deterministic)
+            let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
+            result[i] ^= memory_sum;
+        },
+        12 => {
+            // Case 12: Rotate left by i bits, then apply modulo operation
+            result[i] = processed_value.rotate_left(i as u32);
+            result[i] = result[i] % 0xABCDEF01;
+        },
+        13 => {
+            // Case 13: XOR with a derived value from the hash_bytes_sum
+            result[i] ^= hash_bytes_sum;
+        },
+        14 => {
+            // Case 14: Invert the bits and add a small constant (deterministic)
+            result[i] = !processed_value;
+            result[i] = result[i].wrapping_add(0x00000001); // Add a small deterministic constant
+        },
+        15 => {
+            // Case 15: Use a combination of hash_bytes_sum and a hash to apply bitwise shifts and XOR
+            let hash_combined = hash_bytes_sum.wrapping_add(processed_value);
+            let sha1_result = sha1::digest(&hash_combined.to_le_bytes());
+            let hash_value = u32::from_le_bytes(sha1_result[0..4].try_into().unwrap());
+            result[i] ^= hash_value;
+            result[i] = result[i].rotate_left(4);
+        },
+        _ => {
+            // Default case: no change if something unexpected happens
+            result[i] = processed_value;
+        }
+    }
+
+    // Perform memory randomization based on the memory index and hash bytes sum (still deterministic)
     randomize_memory(memory, mem_index, hash_bytes_sum)?;
 
-    // Update the result
+    // Update the result array with the processed value
     result[i] = processed_value;
 
     Ok(())
 }
+
+
+
+
 
 // Main heavy_hash function
 pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
