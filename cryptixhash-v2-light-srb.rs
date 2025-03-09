@@ -8,8 +8,6 @@ use cryptix::Uint256;
 
 const H_MEM: usize = 4 * 1024 * 1024; // Memory size 4MB
 const H_MEM_U32: usize = H_MEM / 4; // Memory size in u32 elements
-const H_MUL: u32 = 1664525; // Multiplier used in the state update function
-const H_INC: u32 = 1013904223; // Increment used in the state update function
 
 // SHA3-256 Hash Function
 fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
@@ -76,6 +74,20 @@ fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
     output
 }
 
+fn derive_dynamic_values(block_hash: [u8; 32]) -> (u32, u32) {
+    // Split the block hash into two parts (e.g., 16 bytes for H_MUL and 16 bytes for H_INC)
+    let part1 = &block_hash[0..16];
+    let part2 = &block_hash[16..32];
+
+    // Convert the parts into u32 values
+    let h_mul = u32::from_le_bytes(part1.try_into().expect("Failed to convert part1"));
+    let h_inc = u32::from_le_bytes(part2.try_into().expect("Failed to convert part2"));
+
+    // H_MUL and H_INC
+    (h_mul, h_inc)
+}
+
+
 // Convert `seed` into a `u32` array
 fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
     let mut result = [0u32; 8];
@@ -92,31 +104,34 @@ fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
 }
 
 // Memory filling with state
-fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) -> Result<(), String> {
+fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>, block_hash: [u8; 32]) -> Result<(), String> {
+    let (h_mul, h_inc) = derive_dynamic_values(block_hash);
+
     if memory.len() % 4 != 0 {
-        return Err("Memory length must be a multiple of 4 bytes".to_string()); // Check if memory size is a multiple of 4 bytes
+        return Err("Memory length must be a multiple of 4 bytes".to_string());
     }
 
-    let seed_words = convert_seed_to_u32(seed); // Convert seed to u32 array
+    let seed_words = convert_seed_to_u32(seed);
     let num_elements = H_MEM_U32;
 
     if memory.len() < H_MEM {
-        return Err("Memory buffer is too small".to_string()); // Check if memory is large enough
+        return Err("Memory buffer is too small".to_string());
     }
 
-    let mut state: u32 = seed_words[0]; // Initial state set by the first element of seed
+    let mut state: u32 = seed_words[0];
 
     for i in 0..num_elements {
         let offset = i * 4;
-        state = state.wrapping_mul(H_MUL).wrapping_add(H_INC); // Update state with multiplication and increment
-        state ^= seed_words[i % 8]; // XOR with seed word based on current index
+        state = state.wrapping_mul(h_mul).wrapping_add(h_inc); 
+        state ^= seed_words[i % 8];
 
-        let chunk = &mut memory[offset..offset + 4]; // Memory chunk to update
-        chunk.copy_from_slice(&state.to_le_bytes()); // Copy the updated state into memory
+        let chunk = &mut memory[offset..offset + 4];
+        chunk.copy_from_slice(&state.to_le_bytes());
     }
 
     Ok(())
 }
+
 
 // Convert u32 to u8 array
 fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
