@@ -496,34 +496,24 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
     // Calculate Blake3 rounds based on input
     fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        let slice = &input[4..8];
-
-        if slice.len() == 4 {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
-        } else {
-            Err("Input slice for Blake3 rounds is invalid".to_string())
-        }
+        let slice = &input[B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE];
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
     }
 
-    // Calculate SHA3 rounds based on input
+    // Calculate SHA3 rounds based on input    
     fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        let slice = &input[8..12];
-
-        if slice.len() == 4 {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
-        } else {
-            Err("Input slice for SHA3 rounds is invalid".to_string())
-        }
+        let slice = &input[SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE];
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
     }
-
+    
     // Bitwise manipulations on data
     fn bit_manipulations(data: &mut [u8; 32]) {
         for i in 0..32 {
-            data[i] ^= data[(i + 1) % 32]; // XOR with the next byte (circularly)
+            data[i] ^= data[(i + 1) % 32]; // XOR with the next byte 
             data[i] = data[i].rotate_left(3); // Rotate left by 3 bits
-            data[i] ^= i as u8; // XOR with the index value (removed unnecessary parentheses)
+            data[i] ^= i as u8; // XOR with the index value 
         }
     }
 
@@ -598,8 +588,8 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
         // Convert the final hash to Uint256 and return the result
         Uint256::from_le_bytes(final_hash.as_bytes())
+    }   
 
-    }  
 
 // -----------------------------
 
