@@ -15,6 +15,12 @@ use cryptix_math::Uint256;
 use sha3::{Digest, Sha3_256};
 use blake3;
 
+
+// Constants for the offsets
+const SHA3_ROUND_OFFSET: usize = 8;
+const B3_ROUND_OFFSET: usize = 4;
+const ROUND_RANGE_SIZE: usize = 4;
+
 /// State is an intermediate data structure with pre-computed values to speed up mining.
 pub struct State {
     pub(crate) matrix: Matrix,
@@ -52,9 +58,9 @@ impl State {
 
     // Calculate Blake3 rounds based on input
     fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        let slice = &input[4..8];
+        let slice = &input[B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE];
 
-        if slice.len() == 4 {
+        if slice.len() == ROUND_RANGE_SIZE {
             let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
             Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
         } else {
@@ -64,9 +70,9 @@ impl State {
 
     // Calculate SHA3 rounds based on input
     fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        let slice = &input[8..12];
+        let slice = &input[SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE];
 
-        if slice.len() == 4 {
+        if slice.len() == ROUND_RANGE_SIZE {
             let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
             Ok((value % 3 + 1) as usize) // Rounds between 1 and 3
         } else {
@@ -154,7 +160,6 @@ impl State {
 
         // Convert the final hash to Uint256 and return the result
         Uint256::from_le_bytes(final_hash.as_bytes())
-
     }   
 
     #[inline]
