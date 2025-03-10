@@ -471,7 +471,14 @@ pub fn heavy_hash(block_hash: Hash) -> Result<Hash, String> {
 
 
 
-// Lib.rs
+// ### Lib.rs
+
+    use blake3;
+
+    // Constants for the offsets
+    const SHA3_ROUND_OFFSET: usize = 8;
+    const B3_ROUND_OFFSET: usize = 4;
+    const ROUND_RANGE_SIZE: usize = 4;
 
     // SHA3-256 Hash Function
     fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
