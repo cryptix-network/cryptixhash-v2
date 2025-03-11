@@ -13,7 +13,7 @@ Testing ✅
 Hardware Mining Tests ✅
 
 
-- fn calculate_pow / matrix.rs:
+- fn heavy_hash / matrix.rs:
  
 Planning ✅
 
