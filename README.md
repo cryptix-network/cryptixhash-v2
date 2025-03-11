@@ -1,3 +1,22 @@
+##Progress
+
+- fn calculate_pow / lib.rs:
+Planning ✅
+Coding ✅
+Integration ✅
+Testing ✅
+Hardware Mining Tests ✅
+
+- fn calculate_pow / matrix.rs:
+Planning ✅
+Coding 🔄
+Integration 🚧
+Testing 🚧
+Hardware Mining Tests 🚧
+
+
+#Cryptixhash v2
+
 Cryptixhash v2 is a newly developed hash algorithm designed to resist specialized hardware attacks, particularly from FPGAs and ASICs. The goal is to achieve an optimal balance between CPU and GPU mining, making specialized hardware economically unviable. ASIC and FPGA Resistance – A Realistic Approach
 
 It’s important to distinguish between resistance and immunity:
