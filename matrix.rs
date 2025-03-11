@@ -102,30 +102,6 @@ impl Matrix {
         rank
     }
 
-    // Dynamic S-Box based on hash
-    fn generate_sbox(block_hash: [u8; 32]) -> [u8; 32] {
-        let mut output = [0u8; 32];
-        for i in 0..32 {
-            output[i] = block_hash[i] ^ block_hash[(i + 1) % 32] ^ block_hash[(i + 31) % 32]; // Create S-box using XOR with neighbors
-        }
-        output
-    }
-
-    // Convert `seed` into a `u32` array
-    fn convert_seed_to_u32(seed: &[u8; 32]) -> [u32; 8] {
-        let mut result = [0u32; 8];
-        for i in 0..8 {
-            let offset = i * 4;
-            result[i] = u32::from_le_bytes([
-                seed[offset],
-                seed[offset + 1],
-                seed[offset + 2],
-                seed[offset + 3],
-            ]);
-        }
-        result
-    }
-
     fn xorshift32(state: &mut u32) -> u32 {
         let mut x = *state;
         x ^= x << 13;
@@ -134,10 +110,10 @@ impl Matrix {
         *state = x;
         x
     }
-
+    
     fn fill_memory(seed: &[u8; 32], memory: &mut Vec<u8>) {
         assert!(memory.len() % 4 == 0, "Memory length must be a multiple of 4 bytes");
-
+    
         // Derive initial state using all 32 bytes
         let mut state = 0u32;
         for i in (0..32).step_by(4) {
@@ -149,12 +125,12 @@ impl Matrix {
             ]);
             state ^= chunk; // XOR each 4-byte chunk into the state
         }
-
+    
         let num_elements = H_MEM_U32;
-
+    
         // Fill memory with u32 values as bytes
         for i in 0..num_elements {
-            let value = xorshift32(&mut state);
+            let value = Self::xorshift32(&mut state);
             let offset = i * 4;
             memory[offset]     = (value & 0xFF) as u8;
             memory[offset + 1] = ((value >> 8) & 0xFF) as u8;
@@ -163,215 +139,7 @@ impl Matrix {
         }
     }
 
-    // Convert u32 to u8 array
-    fn u32_array_to_u8_array(input: [u32; 8]) -> [u8; 32] {
-        let mut output = [0u8; 32];
-        for (i, &value) in input.iter().enumerate() {
-            let bytes = value.to_le_bytes();
-            let offset = i * 4;
-            output[offset..offset + 4].copy_from_slice(&bytes); // Convert each u32 to bytes and store in output
-        }
-        output
-    }
-
-    // memory index and position
-    fn calculate_mem_index_and_pos(result_value: u32, prev_result_value: u32) -> (u32, usize) {
-        let mem_index = ((result_value >> 3) ^ (prev_result_value << 2)) % H_MEM_U32 as u32;
-        let pos = mem_index as usize * 4;
-        (mem_index, pos)
-    }
-
-    // memory chunk in place
-    fn process_memory_chunk_in_place(
-        memory: &mut Vec<u8>,
-        pos: usize,
-        hash_bytes_sum: u32,
-        result_value: u32,
-        sbox: &[u8; 32]
-    ) -> Result<u32, String> {
-        if let Some(chunk) = memory.get(pos..pos + 4) {
-            let mut v = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            v = v.wrapping_add(hash_bytes_sum);
-            v ^= result_value;
-            v = v.rotate_left((result_value & 0x1F) as u32);
-
-            // S-Box Transformation
-            let b: [u8; 4] = v.to_le_bytes();
-            v = u32::from_le_bytes([
-                sbox[b[0] as usize & 0x1F], 
-                sbox[b[1] as usize & 0x1F],
-                sbox[b[2] as usize & 0x1F],
-                sbox[b[3] as usize & 0x1F],
-            ]);
-
-            if let Some(mem_chunk) = memory.get_mut(pos..pos + 4) {
-                mem_chunk.copy_from_slice(&v.to_le_bytes());
-            }
-
-            Ok(v)
-        } else {
-            Err("Memory slice out of bounds".to_string())
-        }
-    }
-
-    // Memory randomization step
-    fn randomize_memory(memory: &mut Vec<u8>, mem_index: u32, hash_bytes_sum: u32) -> Result<(), String> {
-        let alt_index = (mem_index ^ (hash_bytes_sum % H_MEM_U32 as u32)) % H_MEM_U32 as u32;
-        let alt_pos = alt_index as usize * 4;
-
-        if let Some(alt_chunk) = memory.get_mut(alt_pos..alt_pos + 4) {
-            let mut alt_v = u32::from_le_bytes([alt_chunk[0], alt_chunk[1], alt_chunk[2], alt_chunk[3]]);
-            alt_v ^= u32::from_le_bytes(alt_chunk); // XOR with the previously processed memory value
-            alt_chunk.copy_from_slice(&alt_v.to_le_bytes());
-        }
-
-        Ok(())
-    }
-
-    // Process memory with cases - with much more love
-    fn process_memory_and_update_result(
-        i: usize,
-        result: &mut [u32; 8],
-        memory: &mut Vec<u8>,
-        hash_bytes_sum: u32,
-        sbox: &[u8; 32]
-    ) -> Result<(), String> {
-        // Calculate the memory index and position
-        let (mem_index, pos) = calculate_mem_index_and_pos(result[i], result[(i + 3) % 8]);
-
-        // Process the memory chunk
-        let processed_value = process_memory_chunk_in_place(memory, pos, hash_bytes_sum, result[i], sbox)?;
-
-        // Branch based on result[i] % 20 to support 20 different cases (0 through 19)
-        match result[i] % 20 {
-            0 => {
-                // Case 0: Intentional XOR misalignment and high-latency multiplication
-                result[i] ^= 0xDEADBEEF;
-                result[i] = result[i].wrapping_mul(0xACDCACDC);
-            },
-            1 => {
-                // Case 1: Bitwise NOT followed by unpredictable AND mask
-                result[i] = !processed_value;
-                result[i] &= (hash_bytes_sum | 0xFF00FF00);
-            },
-            2 => {
-                // Case 2: Chained dependencies - addition, multiplication, and rotation
-                result[i] = processed_value.wrapping_add(hash_bytes_sum);
-                result[i] = result[i].wrapping_mul(0x12345678);
-                result[i] = result[i].rotate_left(result[i] as u32 % 31);
-            },
-            3 => {
-                // Case 3: Memory-dependent modulo and division 
-                result[i] = processed_value / (memory[mem_index % memory.len()] as u32 + 1);
-                result[i] = result[i] % 0xABCDEF01;
-            },
-            4 => {
-                // Case 4: Hash-dependent shifting and unpredictable XOR
-                result[i] = processed_value.wrapping_add(i as u32);
-                result[i] ^= processed_value.rotate_left(hash_bytes_sum as u32 % 17);
-                result[i] = result[i].rotate_right((memory[pos % memory.len()] % 8) as u32);
-            },
-            5 => {
-                // Case 5: Forced global memory dependencies
-                let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
-                result[i] ^= memory_sum;
-                result[i] ^= (hash_bytes_sum.rotate_left(8) ^ processed_value);
-            },
-            6 => {
-                // Case 6: XOR cascade combined with volatile memory-based mask
-                result[i] = processed_value.wrapping_sub(0x7A3F0D1E);
-                result[i] |= memory[mem_index % memory.len()] as u32;
-            },
-            7 => {
-                // Case 7: FPGA-hostile dynamic shifting and unpredictable masking
-                result[i] = processed_value.rotate_right((result[(i + 2) % 8] % 16) as u32);
-                result[i] &= (hash_bytes_sum | 0x0F0F0F0F);
-            },
-            8 => {
-                // Case 8: Self-referential XOR and memory-seeded arithmetic
-                result[i] ^= i as u32;
-                result[i] = result[i].wrapping_add(memory[(mem_index / 2) % memory.len()] as u32);
-            },
-            9 => {
-                // Case 9: Multi-stage rotation and multiplication with non-trivial XOR
-                result[i] = processed_value.rotate_left((memory[mem_index % memory.len()] % 24) as u32);
-                result[i] = result[i].wrapping_mul(0x7E1F9C3D);
-                result[i] ^= processed_value;
-            },
-            10 => {
-                // Case 10: Memory-driven modulo, forcing unpredictable routing
-                result[i] = processed_value % (memory[pos % memory.len()] as u32 + 1);
-                result[i] = result[i].wrapping_mul(0x13579BDF);
-            },
-            11 => {
-                // Case 11: Memory sum hash blending with rotation-based scrambling
-                let memory_sum: u32 = memory.iter().map(|&x| x as u32).sum();
-                result[i] ^= memory_sum;
-                result[i] = result[i].rotate_left((hash_bytes_sum % 14) as u32);
-            },
-            12 => {
-                // Case 12: Constant addition followed by shifting chaos
-                result[i] = processed_value.wrapping_add(0xCAFEBABE);
-                result[i] = result[i].rotate_right(result[(i + 1) % 8] % 32);
-            },
-            13 => {
-                // Case 13: Deep bitwise XOR mixing with non-trivial rotation
-                result[i] ^= 0xBADC0FFEE;
-                result[i] = result[i].rotate_left(i as u32 ^ (memory[mem_index % memory.len()] as u32));
-            },
-            14 => {
-                // Case 14: Bitwise inversion and floating mask application
-                result[i] = !processed_value;
-                result[i] ^= memory[(mem_index * 3) % memory.len()] as u32;
-            },
-            15 => {
-                // Case 15: XOR-based mutation and forced AND dependency
-                result[i] &= 0xFFFFFF00;
-                result[i] = result[i].wrapping_mul((processed_value % 0x5A5A5A5A) + 1);
-            },
-            16 => {
-                // Case 16: Highly variable rotation depth based on processed data
-                result[i] = processed_value.rotate_right((result[i] % 31) as u32);
-                result[i] = result[i].wrapping_add(0x1A2B3C4D);
-            },
-            17 => {
-                // Case 17: Recursive shifting pattern with XOR scrambling
-                result[i] ^= 0x0F0F0F0F;
-                result[i] = result[i].rotate_right(((processed_value & 7) + 1) as u32);
-            },
-            18 => {
-                // Case 18: Unpredictable OR masking, addition, and rotation
-                result[i] |= 0xF0F0F0F0;
-                result[i] = result[i].wrapping_add(memory[(mem_index / 4) % memory.len()] as u32);
-                result[i] = result[i].rotate_left(10);
-            },
-            19 => {
-                // Case 19: Hash-based unpredictable scrambling
-                result[i] = processed_value.wrapping_add(hash_bytes_sum);
-                result[i] = result[i].rotate_left((i as u32 + hash_bytes_sum) % 32);
-                result[i] ^= 0x1234ABCD;
-            },
-            _ => {
-                // Default case: No change if something unexpected happens
-                result[i] = processed_value;
-            }
-        }
-
-        // Extra unpredictable bitwise mutation
-        let complex_op = processed_value.wrapping_mul(0xABCDEF);
-        result[i] ^= complex_op.rotate_right(8);
-
-        // Memory chaos to break parallel processing
-        randomize_memory(memory, mem_index, hash_bytes_sum)?;
-
-        // Update result array
-        result[i] = processed_value;
-
-        Ok(())
-    }
-
-
-    const final_x: [u8; 32] = [
+    const FINAL_X: [u8; 32] = [
         0x3F, 0xC2, 0xF2, 0xE2,
         0xD1, 0x55, 0x81, 0x92,
         0xA0, 0x6B, 0xF5, 0x3F,
@@ -414,7 +182,28 @@ impl Matrix {
         product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
 
         for i in 0..32 {
-            product[i] ^= Self::final_x[i];
+            product[i] ^= Self::FINAL_X[i];
+        }
+
+        // Initialize a 32-byte seed value
+        let seed: [u8; 32] = {
+            let o_bytes = hash.as_bytes();
+            let mut arr = [0u8; 32];
+            for i in 0..32 {
+                arr[i] = o_bytes[i];
+            }
+            arr
+        };
+
+        // Create the vector 'memory' with the size 'H_MEM'
+        let mut memory: Vec<u8> = vec![0; H_MEM];
+
+        // Fill the 'memory' vector with random values ​​using 'fill_memory'
+        Self::fill_memory(&seed, &mut memory);
+
+         // XOR von memory mit product
+        for i in 0..32 {
+            product[i] ^= memory[i];
         }
 
         CryptixHash::hash(Hash::from_bytes(product))
