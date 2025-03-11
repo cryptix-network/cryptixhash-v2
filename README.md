@@ -1,18 +1,30 @@
 ##Progress
 
 - fn calculate_pow / lib.rs:
+ 
 Planning ✅
+
 Coding ✅
+
 Integration ✅
+
 Testing ✅
+
 Hardware Mining Tests ✅
 
+
 - fn calculate_pow / matrix.rs:
+ 
 Planning ✅
+
 Coding 🔄
+
 Integration 🚧
+
 Testing 🚧
+
 Hardware Mining Tests 🚧
+
 
 
 #Cryptixhash v2
