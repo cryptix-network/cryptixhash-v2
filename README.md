@@ -1,4 +1,4 @@
-##Progress
+## Progress
 
 - fn calculate_pow / lib.rs:
  
@@ -33,8 +33,10 @@ Balancing and performance optimization 🚧
 
 
 
+-----
 
-#Cryptixhash v2
+
+# Cryptixhash v2
 
 Cryptixhash v2 is a newly developed hash algorithm designed to resist specialized hardware attacks, particularly from FPGAs and ASICs. The goal is to achieve an optimal balance between CPU and GPU mining, making specialized hardware economically unviable. ASIC and FPGA Resistance – A Realistic Approach
 
