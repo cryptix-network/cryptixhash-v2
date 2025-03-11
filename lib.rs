@@ -105,18 +105,24 @@ impl State {
             }
         }
 
-        // Complex manipulation based on the nonce
+        // Branches for Byte Manipulation
         for i in 0..32 {
-            // XOR the byte with the nonce, adding an index-based offset
-            hash_bytes[i] ^= (nonce as u8).wrapping_add(i as u8);
-            
-            // Apply a 4-bit left rotation to further mix the byte
-            hash_bytes[i] = hash_bytes[i].rotate_left(4); // Rotate by 4 bits to the left
+            match (hash_bytes[i] ^ (nonce as u8)) % 6 {
+                0 => hash_bytes[i] = hash_bytes[i].wrapping_add(13),
+                1 => hash_bytes[i] = hash_bytes[i].rotate_left(3),
+                2 => hash_bytes[i] ^= 0x5A,
+                3 => hash_bytes[i] = hash_bytes[i].wrapping_mul(17),
+                4 => hash_bytes[i] = hash_bytes[i].wrapping_sub(29),
+                5 => hash_bytes[i] = hash_bytes[i].wrapping_add(0xAA ^ nonce as u8),
+                _ => unreachable!(),
+            }
         }
 
         // Calculate the number of rounds for both Blake3 and SHA3
         let b3_rounds = State::calculate_b3_rounds(hash_bytes).unwrap_or(1);
         let sha3_rounds = State::calculate_sha3_rounds(hash_bytes).unwrap_or(1);
+
+        let extra_rounds = (hash_bytes[0] % 7) as usize;  // dynamic rounds
 
         let sha3_hash: [u8; 32];
         let b3_hash: [u8; 32];
