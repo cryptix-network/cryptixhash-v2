@@ -27,6 +27,11 @@ Hardware Mining Tests 🚧
 
 
 
+- Total Hash:
+
+Balancing and performance optimization 🚧
+
+
 
 
 #Cryptixhash v2
