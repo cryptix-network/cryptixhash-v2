@@ -85,7 +85,6 @@ impl State {
     fn bit_manipulations(data: &mut [u8; 32]) {
         for i in 0..32 {
             // Non-linear manipulations with pseudo-random patterns
-            let a = data[i];
             let b = data[(i + 1) % 32];
             data[i] ^= b; // XOR with next byte
             data[i] = data[i].rotate_left(3); // Rotation
@@ -94,7 +93,8 @@ impl State {
             data[i] ^= (i as u8) << 2; // XOR with index shifted
         }
     }
-
+    
+    //Byte Mixing
     fn byte_mixing(sha3_hash: &[u8; 32], b3_hash: &[u8; 32]) -> [u8; 32] {
         let mut temp_buf = [0u8; 32];
         for i in 0..32 {
