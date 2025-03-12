@@ -99,7 +99,7 @@ impl Matrix {
     }
 
 
-    const FINAL_X: [u8; 32] = [
+    const FINAL_CRYPTIX: [u8; 32] = [
         0x3F, 0xC2, 0xF2, 0xE2,
         0xD1, 0x55, 0x81, 0x92,
         0xA0, 0x6B, 0xF5, 0x3F,
@@ -110,68 +110,75 @@ impl Matrix {
         0xAD, 0x8C, 0x60, 0x8F,
         ];
     
-        pub fn heavy_hash(&self, hash: Hash) -> Hash {
-            let nibbles: [u8; 64] = {
-                let o_bytes = hash.as_bytes();
-                let mut arr = [0u8; 64];
-                for (i, &byte) in o_bytes.iter().enumerate() {
-                    arr[2 * i]     = byte >> 4;
-                    arr[2 * i + 1] = byte & 0x0F;
-                }
-                arr
-            };
-        
-            let mut product = [0u8; 32];
-        
-            for i in 0..32 {
-                let mut sum1 = 0u16;
-                let mut sum2 = 0u16;
-                for j in 0..64 {
-                    let elem = nibbles[j] as u16;
-                    sum1 += self.0[2 * i][j] * elem;
-                    sum2 += self.0[2 * i + 1][j] * elem;
-                }
-        
-                let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF);
-                let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
-        
-                product[i] = ((a_nibble << 4) | b_nibble) as u8;
+    pub fn heavy_hash(&self, hash: Hash) -> Hash {
+        let nibbles: [u8; 64] = {
+            let o_bytes = hash.as_bytes();
+            let mut arr = [0u8; 64];
+            for (i, &byte) in o_bytes.iter().enumerate() {
+                arr[2 * i]     = byte >> 4;
+                arr[2 * i + 1] = byte & 0x0F;
             }
-        
-            product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
-        
-            // **Memory-Hard**
-            let mut memory_table = vec![0u8; 8192];  // 8 KB Test
-            let mut index: usize = 0;
-
-            for i in 0..32 {
-                let mut sum = 0u16;
-                for j in 0..64 {
-                    sum += nibbles[j] as u16 * self.0[2 * i][j] as u16;
-                }
-
-                // non-linear memory accesses
-                for _ in 0..6 { 
-                    index = (index.wrapping_add(i * 257)) % memory_table.len();  // PR Index
-                    index = index ^ memory_table[index % memory_table.len()] as usize * 13; // XOR with values ​​from memory
-                    index = (index * 41 + i * 73) % memory_table.len();  // Disruption of the sequence
-
-                    memory_table[index] ^= (sum & 0xFF) as u8;
-                }
+            arr
+        };
+    
+        let mut product = [0u8; 32];
+    
+        for i in 0..32 {
+            let mut sum1 = 0u16;
+            let mut sum2 = 0u16;
+            for j in 0..64 {
+                let elem = nibbles[j] as u16;
+                sum1 += self.0[2 * i][j] * elem;
+                sum2 += self.0[2 * i + 1][j] * elem;
             }
-
-            // Using the memory table to calculate the hash
-            for i in 0..32 {
-                product[i] ^= memory_table[(product[i] as usize * 47 + i) % memory_table.len()];
-            }
-      
-            for i in 0..32 {
-                product[i] ^= Self::FINAL_X[i];
-            }
-        
-            // Back to Home
-            CryptixHash::hash(Hash::from_bytes(product))
+    
+            let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF);
+            let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
+    
+            product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
+    
+        product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
+    
+        // **Memory-Hard**
+        let mut memory_table = vec![0u8; 16384];  // 16 KB Test
+        let mut index: usize = 0;
+
+        // Repeat calculations and manipulations on memory
+        for i in 0..32 {
+            let mut sum = 0u16;
+            for j in 0..64 {
+                sum += nibbles[j] as u16 * self.0[2 * i][j] as u16;
+            }
+
+            // ** non-linear memory accesses:**
+            for _ in 0..4 { 
+
+                index = (index + (i * 257)) % memory_table.len();  // Base increment
+                index ^= memory_table[index % memory_table.len()] as usize * 19; // XOR with current value
+                index = (index * 73 + i * 41) % memory_table.len(); // Further manipulations
+
+                // Index paths
+                let shifted = (index.wrapping_add(i * 13)) % memory_table.len();
+                memory_table[shifted] ^= (sum & 0xFF) as u8;
+            }
+        }
+
+        // Calculate the final memory-hash result
+        for i in 0..32 {
+            // non-linear memory accesses
+            let shift_val = (product[i] as usize * 47 + i) % memory_table.len();
+            product[i] ^= memory_table[shift_val];
+        }
+
+        // final xor
+        for i in 0..32 {
+            product[i] ^= Self::FINAL_CRYPTIX[i];
+        }
+    
+        // Back to Home
+        CryptixHash::hash(Hash::from_bytes(product))
+    }
     
 }
 
