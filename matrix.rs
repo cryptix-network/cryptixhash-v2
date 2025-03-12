@@ -100,17 +100,33 @@ impl Matrix {
 
 
     const FINAL_CRYPTIX: [u8; 32] = [
-        0x3F, 0xC2, 0xF2, 0xE2,
-        0xD1, 0x55, 0x81, 0x92,
-        0xA0, 0x6B, 0xF5, 0x3F,
-        0x5A, 0x70, 0x32, 0xB4,
-        0xE4, 0x84, 0xE4, 0xCB,
-        0x81, 0x73, 0xE7, 0xE0,
-        0xD2, 0x7F, 0x8C, 0x55,
-        0xAD, 0x8C, 0x60, 0x8F,
-        ];
+        0xE4, 0x7F, 0x3F, 0x73, 
+        0xB4, 0xF2, 0xD2, 0x8C, 
+        0x55, 0xD1, 0xE7, 0x6B, 
+        0xE0, 0xAD, 0x70, 0x55, 
+        0xCB, 0x3F, 0x8C, 0x8F, 
+        0xF5, 0xA0, 0xE2, 0x60, 
+        0x81, 0xC2, 0x5A, 0x84, 
+        0x32, 0x81, 0xE4, 0x92,
+    ];   
+
+    pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
+        let mut result = input;
     
+        // A combination of multiplication and bitwise permutation
+        result = result.wrapping_mul(key);          // Multiply by the key
+        result = (result >> 3) | (result << 5);    // Bitwise permutation (rotation)
+        result ^= 0x5A;                             // XOR
+    
+        // Modulo operation
+        result = result & 0xFF;  
+    
+        result
+    }
+     
     pub fn heavy_hash(&self, hash: Hash) -> Hash {
+        let hash_bytes = hash.as_bytes(); 
+
         let nibbles: [u8; 64] = {
             let o_bytes = hash.as_bytes();
             let mut arr = [0u8; 64];
@@ -141,7 +157,7 @@ impl Matrix {
         product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
     
         // **Memory-Hard**
-        let mut memory_table = vec![0u8; 16384];  // 16 KB Test
+        let mut memory_table = vec![0u8; 1024 * 32]; // 32 KB
         let mut index: usize = 0;
 
         // Repeat calculations and manipulations on memory
@@ -174,6 +190,21 @@ impl Matrix {
         // final xor
         for i in 0..32 {
             product[i] ^= Self::FINAL_CRYPTIX[i];
+        }
+
+        // **Apply nonlinear S-Box**
+        let mut sbox: [u8; 256] = [0; 256];
+
+        // Calculate S-Box with the product value and hash values
+        for i in 0..256 {
+            let mut value = i as u8;
+            value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()]);
+            sbox[i] = value;
+        }
+
+        // Apply S-Box to the product
+        for i in 0..32 {
+            product[i] = sbox[product[i] as usize];
         }
     
         // Back to Home
