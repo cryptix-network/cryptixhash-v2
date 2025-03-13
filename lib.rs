@@ -135,7 +135,7 @@ impl State {
         }
     
         // **Branches for Byte Manipulation**
-        for i in 0..32 {
+        for i in 0..16 {
             let condition = (hash_bytes[i] ^ (nonce as u8)) % 6; // 6 Cases
             match condition {
                 0 => {

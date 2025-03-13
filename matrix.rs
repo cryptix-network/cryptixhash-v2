@@ -117,14 +117,23 @@ impl Matrix {
 
     // Anti-ASIC cache
     pub fn anti_asic_cache(product: &mut [u8; 32]) {
-        const CACHE_SIZE: usize = 8192; // 8 KB Cache
+        // const CACHE_SIZE: usize = 16384; // 16 KB Cache
+        const CACHE_SIZE: usize = 8192;  // 8 KB
         let mut cache = [0u8; CACHE_SIZE];
 
         let mut index: usize = 0;
+
+        // Cache initialization
+        let mut hash_value = 0u8;
+        for i in 0..CACHE_SIZE { 
+            // Combine product values with cache indices
+            hash_value = (product[i % 32] ^ i as u8).wrapping_add(hash_value);
+            cache[i] = hash_value;  // starting pattern
+        }
         
-        for _ in 0..16 { 
-            for i in 0..16 {
-                // XOR for destructive cache effect and non-linear index calculation
+        for _ in 0..8 { 
+            for i in 0..8 {
+                // XOR for destructive cache effect
                 index = (index.rotate_left(5) ^ product[i] as usize * 17) % CACHE_SIZE;
                 cache[index] ^= product[i]; 
                 
@@ -139,7 +148,7 @@ impl Matrix {
         }
 
         // Link cache values ​​back to product
-        for i in 0..16 {
+        for i in 0..8 {
             let shift_val = (product[i] as usize * 47 + i) % CACHE_SIZE;
             product[i] ^= cache[shift_val];
         }
@@ -194,7 +203,7 @@ impl Matrix {
         product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
     
         // **Memory-Hard**
-        let mut memory_table = vec![0u8; 1024 * 32]; // 32 KB
+        let mut memory_table = vec![0u8; 1024 * 16]; // 16 KB
         let mut index: usize = 0;
 
         // Repeat calculations and manipulations on memory
@@ -205,7 +214,7 @@ impl Matrix {
             }
 
             // ** non-linear memory accesses:**
-            for _ in 0..4 { 
+            for _ in 0..6 { 
                 index ^= (memory_table[(index * 7 + i) % memory_table.len()] as usize * 19) ^ ((i * 53) % 13);
                 index = (index * 73 + i * 41) % memory_table.len(); 
 
@@ -222,7 +231,7 @@ impl Matrix {
         }
 
         // final xor
-        for i in 0..32 {
+        for i in 0..16 {
             product[i] ^= Self::FINAL_CRYPTIX[i];
         }
 
@@ -234,7 +243,7 @@ impl Matrix {
 
         // Calculate S-Box with the product value and hash values
         for _ in 0..6 {  
-            for i in 0..64 {
+            for i in 0..32 {
                 let mut value = i as u8;
                 value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()]);
                 value ^= (value << 4) | (value >> 2); 
