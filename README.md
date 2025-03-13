@@ -1,3 +1,11 @@
+## TODO
+
+    // TODO:
+    // Add a nonlinear Cache Function, should fits to L1, L2 Cache
+    // Rewrite Memory Hard Function to a real Memory Hard Function (its to easy now)
+    // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
+
+
 ## Progress
 
 - fn calculate_pow / lib.rs:
