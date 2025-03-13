@@ -98,6 +98,10 @@ impl Matrix {
         rank
     }
 
+    // TODO:
+    // Add a nonlinear Cache Function, should fits to L1, L2 Cache
+    // Rewrite Memory Hard Function to a real Memory Hard Function (its to easy now)
+
     // Const Final Cryptix
     const FINAL_CRYPTIX: [u8; 32] = [
         0xE4, 0x7F, 0x3F, 0x73, 
@@ -208,6 +212,9 @@ impl Matrix {
         for i in 0..32 {
             product[i] = sbox[product[i] as usize];
         }
+
+        // #### TODO ####
+        // Add a non linear p-random Cache Function here 
     
         // Back to Home
         CryptixHash::hash(Hash::from_bytes(product))
