@@ -99,7 +99,7 @@ impl Matrix {
     }
 
     // TODO:
-    // Add a nonlinear Cache Function, should fits to L1, L2 Cache
+    // Upgrade Cache Function, should fits to L1, L2 Cache - better Filling
     // Rewrite Memory Hard Function to a real Memory Hard Function (its to easy now)
     // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
 
@@ -114,6 +114,36 @@ impl Matrix {
         0x81, 0xC2, 0x5A, 0x84, 
         0x32, 0x81, 0xE4, 0x92,
     ];   
+
+    // Anti-ASIC cache
+    pub fn anti_asic_cache(product: &mut [u8; 32]) {
+        const CACHE_SIZE: usize = 8192; // 8 KB Cache
+        let mut cache = [0u8; CACHE_SIZE];
+
+        let mut index: usize = 0;
+        
+        for _ in 0..16 { 
+            for i in 0..16 {
+                // XOR for destructive cache effect and non-linear index calculation
+                index = (index.rotate_left(5) ^ product[i] as usize * 17) % CACHE_SIZE;
+                cache[index] ^= product[i]; 
+                
+                // Unpredictable index mapping
+                index = (index.wrapping_add(product[i] as usize * 23) ^ cache[(index * 7) % CACHE_SIZE] as usize) % CACHE_SIZE;
+                cache[index] ^= product[(i + 11) % 32];
+
+                // Data-Dependent Memory Access
+                let dynamic_offset = ((cache[index] as usize * 37) ^ (product[i] as usize * 19)) % CACHE_SIZE;
+                cache[dynamic_offset] ^= product[(i + 3) % 32];
+            }
+        }
+
+        // Link cache values ​​back to product
+        for i in 0..16 {
+            let shift_val = (product[i] as usize * 47 + i) % CACHE_SIZE;
+            product[i] ^= cache[shift_val];
+        }
+    }
 
     // Non linear sbox
     pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
@@ -196,12 +226,15 @@ impl Matrix {
             product[i] ^= Self::FINAL_CRYPTIX[i];
         }
 
+        // **Anti-ASIC Cache **
+        Self::anti_asic_cache(&mut product);               
+
         // **Apply nonlinear S-Box**
         let mut sbox: [u8; 256] = [0; 256];
 
         // Calculate S-Box with the product value and hash values
-        for _ in 0..10 {  
-            for i in 0..256 {
+        for _ in 0..6 {  
+            for i in 0..64 {
                 let mut value = i as u8;
                 value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()]);
                 value ^= (value << 4) | (value >> 2); 
@@ -212,10 +245,7 @@ impl Matrix {
         // Apply S-Box to the product
         for i in 0..32 {
             product[i] = sbox[product[i] as usize];
-        }
-
-        // #### TODO ####
-        // Add a non linear p-random Cache Function here 
+        }     
     
         // Back to Home
         CryptixHash::hash(Hash::from_bytes(product))
