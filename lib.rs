@@ -56,30 +56,24 @@ impl State {
         Ok(hash.into()) 
     }
 
-    // **Calculate Blake3 rounds based on input**
+    // **Calculate BLAKE3 rounds based on input**
     fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
         // Extract the slice from input based on the B3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = &input[B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE];
-
-        if slice.len() == ROUND_RANGE_SIZE {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 5 + 1) as usize) // Returns rounds between 1 and 5
-        } else {
-            Err("Input slice for Blake3 rounds is invalid".to_string()) // Slice length error
-        }
+        let slice = input.get(B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE)
+            .ok_or("Input slice for Blake3 rounds is out of bounds")?;
+    
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 5 + 1) as usize) // Returns rounds between 1 and 5
     }
 
     // **Calculate SHA3 rounds based on input**
     fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
         // Extract the slice from input based on the SHA3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = &input[SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE];
-
-        if slice.len() == ROUND_RANGE_SIZE {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 4 + 1) as usize) // Returns rounds between 1 and 4
-        } else {
-            Err("Input slice for SHA3 rounds is invalid".to_string())  // Slice length error
-        }
+        let slice = input.get(SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE)
+            .ok_or("Input slice for SHA3 rounds is out of bounds")?;
+    
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 4 + 1) as usize) // Returns rounds between 1 and 4
     }
 
     // Bitwise manipulations on data
@@ -89,9 +83,9 @@ impl State {
             let b = data[(i + 1) % 32];
             data[i] ^= b; // XOR with next byte
             data[i] = data[i].rotate_left(3); // Rotation
-            data[i] = data[i].wrapping_add(0x9F); // Random constant
+            data[i] = data[i].wrapping_add(0x9F) & 0xFF; // Random constant
             data[i] &= 0xFE; // AND with mask to set certain bits
-            data[i] ^= (i as u8) << 2; // XOR with index shifted
+            data[i] ^= ((i as u8) << 2) & 0xFF; // XOR with index shifted
         }
     }
     
@@ -135,7 +129,7 @@ impl State {
         }
     
         // **Branches for Byte Manipulation**
-        for i in 0..16 {
+        for i in 0..32 {
             let condition = (hash_bytes[i] ^ (nonce as u8)) % 6; // 6 Cases
             match condition {
                 0 => {
