@@ -1,3 +1,6 @@
+    
+    // Are you still awake?
+    
     // TODO:
     // Better filling of the cache - Scattering is not sufficient
     // Better filling of the Memory hard function - Scattering is not sufficient
