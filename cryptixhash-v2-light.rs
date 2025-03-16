@@ -7,6 +7,27 @@
     // IDEA:
     // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
 
+    use crate::matrix::Matrix;
+    use cryptix_consensus_core::{hashing, header::Header, BlockLevel};
+    use cryptix_hashes::PowHash;
+    use cryptix_math::Uint256;
+    use sha3::{Digest, Sha3_256};
+    use blake3;
+    
+    // Constants for the offsets
+    const SHA3_ROUND_OFFSET: usize = 8;
+    const B3_ROUND_OFFSET: usize = 4;
+    const ROUND_RANGE_SIZE: usize = 4;
+
+    
+/// State is an intermediate data structure with pre-computed values to speed up mining.
+pub struct State {
+    pub(crate) matrix: Matrix,
+    pub(crate) target: Uint256,
+    // PRE_POW_HASH || TIME || 32 zero byte padding; without NONCE
+    pub(crate) hasher: PowHash,
+}
+
 impl State {
     #[inline]
     pub fn new(header: &Header) -> Self {
@@ -34,30 +55,24 @@ impl State {
         Ok(hash.into()) 
     }
 
-    // **Calculate Blake3 rounds based on input**
+    // **Calculate BLAKE3 rounds based on input**
     fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
         // Extract the slice from input based on the B3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = &input[B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE];
-
-        if slice.len() == ROUND_RANGE_SIZE {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 5 + 1) as usize) // Returns rounds between 1 and 5
-        } else {
-            Err("Input slice for Blake3 rounds is invalid".to_string()) // Slice length error
-        }
+        let slice = input.get(B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE)
+            .ok_or("Input slice for Blake3 rounds is out of bounds")?;
+    
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 5 + 1) as usize) // Returns rounds between 1 and 5
     }
 
     // **Calculate SHA3 rounds based on input**
     fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
         // Extract the slice from input based on the SHA3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = &input[SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE];
-
-        if slice.len() == ROUND_RANGE_SIZE {
-            let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-            Ok((value % 4 + 1) as usize) // Returns rounds between 1 and 4
-        } else {
-            Err("Input slice for SHA3 rounds is invalid".to_string())  // Slice length error
-        }
+        let slice = input.get(SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE)
+            .ok_or("Input slice for SHA3 rounds is out of bounds")?;
+    
+        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
+        Ok((value % 4 + 1) as usize) // Returns rounds between 1 and 4
     }
 
     // Bitwise manipulations on data
@@ -67,9 +82,9 @@ impl State {
             let b = data[(i + 1) % 32];
             data[i] ^= b; // XOR with next byte
             data[i] = data[i].rotate_left(3); // Rotation
-            data[i] = data[i].wrapping_add(0x9F); // Random constant
+            data[i] = data[i].wrapping_add(0x9F) & 0xFF; // Random constant
             data[i] &= 0xFE; // AND with mask to set certain bits
-            data[i] ^= (i as u8) << 2; // XOR with index shifted
+            data[i] ^= ((i as u8) << 2) & 0xFF; // XOR with index shifted
         }
     }
     
@@ -96,11 +111,11 @@ impl State {
         temp_buf
     }
 
-    // Proof-of-Work function
     #[inline]
     #[must_use]
     /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
     pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+        // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
         let hash = self.hasher.clone().finalize_with_nonce(nonce);
     
         let mut hash_bytes: [u8; 32];
@@ -113,7 +128,7 @@ impl State {
         }
     
         // **Branches for Byte Manipulation**
-        for i in 0..16 {
+        for i in 0..32 {
             let condition = (hash_bytes[i] ^ (nonce as u8)) % 6; // 6 Cases
             match condition {
                 0 => {
@@ -188,7 +203,7 @@ impl State {
         m_hash = Self::byte_mixing(&sha3_hash, &b3_hash);
     
         // Final computation with matrix.heavy_hash
-        let final_hash = self.matrix.heavy_hash(cryptix_hashes::Hash::from(m_hash));
+        let final_hash = self.matrix.cryptix_hash(cryptix_hashes::Hash::from(m_hash));
         
         // Finally 
         Uint256::from_le_bytes(final_hash.as_bytes())
@@ -202,6 +217,13 @@ impl State {
         (pow <= self.target, pow)
     }
 }
+
+use crate::xoshiro::XoShiRo256PlusPlus;
+use cryptix_hashes::{Hash, CryptixHashV2};
+use std::mem::MaybeUninit;
+
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
+pub struct Matrix([[u16; 64]; 64]);
 
 impl Matrix {
     // pub fn generate(hash: Hash) -> Self {
@@ -296,6 +318,17 @@ impl Matrix {
         rank
     }
 
+
+    // TODO:
+    // Better filling of the cache - Scattering is not sufficient
+    // Better filling of the Memory hard function - Scattering is not sufficient
+    // Performance optimization of illiterations.
+    // Correct values ​​for the cache & memory
+
+    // IDEA:
+    // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
+
+
     // Const Final Cryptix
     const FINAL_CRYPTIX: [u8; 32] = [
         0xE4, 0x7F, 0x3F, 0x73, 
@@ -306,12 +339,12 @@ impl Matrix {
         0xF5, 0xA0, 0xE2, 0x60, 
         0x81, 0xC2, 0x5A, 0x84, 
         0x32, 0x81, 0xE4, 0x92,
-    ];   
+    ];    
+
 
     // Anti-ASIC cache
     pub fn anti_asic_cache(product: &mut [u8; 32]) {
-        // const CACHE_SIZE: usize = 16384; // 16 KB Cache
-        const CACHE_SIZE: usize = 8192;  // 8 KB
+        const CACHE_SIZE: usize = 4096;  // 4 KB
         let mut cache = [0u8; CACHE_SIZE];
 
         let mut index: usize = 0;
@@ -325,13 +358,14 @@ impl Matrix {
         }
         
         for _ in 0..8 { 
-            for i in 0..8 {
+            for i in 0..32 {
                 // XOR for destructive cache effect
-                index = (index.rotate_left(5) ^ product[i] as usize * 17) % CACHE_SIZE;
+                index = (index.rotate_left(5) ^ (product[i] as usize).wrapping_mul(17)) % CACHE_SIZE;
                 cache[index] ^= product[i]; 
                 
                 // Unpredictable index mapping
-                index = (index.wrapping_add(product[i] as usize * 23) ^ cache[(index * 7) % CACHE_SIZE] as usize) % CACHE_SIZE;
+                let safe_index = ((index * 7) % CACHE_SIZE).min(CACHE_SIZE - 1);
+                index = (index.wrapping_add(product[i] as usize * 23) ^ cache[safe_index] as usize) % CACHE_SIZE;
                 cache[index] ^= product[(i + 11) % 32];
 
                 // Data-Dependent Memory Access
@@ -341,10 +375,11 @@ impl Matrix {
         }
 
         // Link cache values ​​back to product
-        for i in 0..8 {
+        for i in 0..32{
             let shift_val = (product[i] as usize * 47 + i) % CACHE_SIZE;
             product[i] ^= cache[shift_val];
         }
+
     }
 
     // Non linear sbox
@@ -356,14 +391,10 @@ impl Matrix {
         result = (result >> 3) | (result << 5);    // Bitwise permutation (rotation)
         result ^= 0x5A;                             // XOR
     
-        // Modulo operation
-        result = result & 0xFF;  
-    
         result
     }
-     
-    // Heavy Hash
-    pub fn heavy_hash(&self, hash: Hash) -> Hash {
+
+    pub fn cryptix_hash(&self, hash: Hash) -> Hash {
         let hash_bytes = hash.as_bytes(); 
 
         let nibbles: [u8; 64] = {
@@ -396,7 +427,7 @@ impl Matrix {
         product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
     
         // **Memory-Hard**
-        let mut memory_table = vec![0u8; 1024 * 16]; // 16 KB
+        let mut memory_table: [u8; 16 * 1024] = [0; 16 * 1024]; // 16 KB
         let mut index: usize = 0;
 
         // Repeat calculations and manipulations on memory
@@ -407,10 +438,10 @@ impl Matrix {
             }
 
             // ** non-linear memory accesses:**
-            for _ in 0..6 { 
+            for _ in 0..12 { 
                 index ^= (memory_table[(index * 7 + i) % memory_table.len()] as usize * 19) ^ ((i * 53) % 13);
                 index = (index * 73 + i * 41) % memory_table.len(); 
-
+            
                 // Index paths
                 let shifted = (index.wrapping_add(i * 13)) % memory_table.len();
                 memory_table[shifted] ^= (sum & 0xFF) as u8;
@@ -424,7 +455,7 @@ impl Matrix {
         }
 
         // final xor
-        for i in 0..16 {
+        for i in 0..32 {
             product[i] ^= Self::FINAL_CRYPTIX[i];
         }
 
@@ -436,10 +467,10 @@ impl Matrix {
 
         // Calculate S-Box with the product value and hash values
         for _ in 0..6 {  
-            for i in 0..32 {
+            for i in 0..256 { 
                 let mut value = i as u8;
                 value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()]);
-                value ^= (value << 4) | (value >> 2); 
+                value ^= value.rotate_left(4) | value.rotate_right(2);
                 sbox[i] = value;
             }
         }
@@ -448,9 +479,19 @@ impl Matrix {
         for i in 0..32 {
             product[i] = sbox[product[i] as usize];
         }     
-    
-        // Back to Home
-        CryptixHash::hash(Hash::from_bytes(product))
+        
+        CryptixHashV2::hash(Hash::from_bytes(product))
     }
-    
+}
+
+pub fn array_from_fn<F, T, const N: usize>(mut cb: F) -> [T; N]
+where
+    F: FnMut(usize) -> T,
+{
+    let mut idx = 0;
+    [(); N].map(|_| {
+        let res = cb(idx);
+        idx += 1;
+        res
+    })
 }
