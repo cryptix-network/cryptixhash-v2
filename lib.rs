@@ -15,11 +15,11 @@ use cryptix_math::Uint256;
 use sha3::{Digest, Sha3_256};
 use blake3;
 
-
 // Constants for the offsets
 const SHA3_ROUND_OFFSET: usize = 8;
 const B3_ROUND_OFFSET: usize = 4;
 const ROUND_RANGE_SIZE: usize = 4;
+
 
 /// State is an intermediate data structure with pre-computed values to speed up mining.
 pub struct State {
@@ -112,11 +112,11 @@ impl State {
         temp_buf
     }
 
-    // Proof-of-Work function
     #[inline]
     #[must_use]
     /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
     pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+        // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
         let hash = self.hasher.clone().finalize_with_nonce(nonce);
     
         let mut hash_bytes: [u8; 32];
@@ -204,7 +204,7 @@ impl State {
         m_hash = Self::byte_mixing(&sha3_hash, &b3_hash);
     
         // Final computation with matrix.heavy_hash
-        let final_hash = self.matrix.heavy_hash(cryptix_hashes::Hash::from(m_hash));
+        let final_hash = self.matrix.cryptix_hash(cryptix_hashes::Hash::from(m_hash));
         
         // Finally 
         Uint256::from_le_bytes(final_hash.as_bytes())
@@ -220,12 +220,22 @@ impl State {
 }
 
 pub fn calc_block_level(header: &Header, max_block_level: BlockLevel) -> BlockLevel {
+    let (block_level, _) = calc_block_level_check_pow(header, max_block_level);
+    block_level
+}
+
+pub fn calc_block_level_check_pow(header: &Header, max_block_level: BlockLevel) -> (BlockLevel, bool) {
     if header.parents_by_level.is_empty() {
-        return max_block_level; // Genesis has the max block level
+        return (max_block_level, true); // Genesis has the max block level
     }
 
     let state = State::new(header);
-    let (_, pow) = state.check_pow(header.nonce);
+    let (passed, pow) = state.check_pow(header.nonce);
+    let block_level = calc_level_from_pow(pow, max_block_level);
+    (block_level, passed)
+}
+
+pub fn calc_level_from_pow(pow: Uint256, max_block_level: BlockLevel) -> BlockLevel {
     let signed_block_level = max_block_level as i64 - pow.bits() as i64;
     max(signed_block_level, 0) as BlockLevel
 }

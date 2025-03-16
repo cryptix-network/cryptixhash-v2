@@ -1,5 +1,5 @@
 use crate::xoshiro::XoShiRo256PlusPlus;
-use cryptix_hashes::{Hash, CryptixHash};
+use cryptix_hashes::{Hash, CryptixHashV2};
 use std::mem::MaybeUninit;
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
@@ -98,6 +98,7 @@ impl Matrix {
         rank
     }
 
+
     // TODO:
     // Better filling of the cache - Scattering is not sufficient
     // Better filling of the Memory hard function - Scattering is not sufficient
@@ -172,9 +173,8 @@ impl Matrix {
     
         result
     }
-    
-    // Heavy Hash
-    pub fn heavy_hash(&self, hash: Hash) -> Hash {
+
+    pub fn cryptix_hash(&self, hash: Hash) -> Hash {
         let hash_bytes = hash.as_bytes(); 
 
         let nibbles: [u8; 64] = {
@@ -259,11 +259,9 @@ impl Matrix {
         for i in 0..32 {
             product[i] = sbox[product[i] as usize];
         }     
-    
-        // Back to Home
-        CryptixHash::hash(Hash::from_bytes(product))
+        
+        CryptixHashV2::hash(Hash::from_bytes(product))
     }
-    
 }
 
 pub fn array_from_fn<F, T, const N: usize>(mut cb: F) -> [T; N]
@@ -302,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn test_heavy_hash() {
+    fn test_cryptix_hash() {
         let expected_hash = Hash::from_bytes([
             135, 104, 159, 55, 153, 67, 234, 249, 183, 71, 92, 169, 83, 37, 104, 119, 114, 191, 204, 104, 252, 120, 153, 202, 235, 68,
             9, 236, 69, 144, 195, 37,
@@ -378,7 +376,7 @@ mod tests {
             82, 46, 212, 218, 28, 192, 143, 92, 213, 66, 86, 63, 245, 241, 155, 189, 73, 159, 229, 180, 202, 105, 159, 166, 109, 172,
             128, 136, 169, 195, 97, 41,
         ]);
-        assert_eq!(test_matrix.heavy_hash(hash), expected_hash);
+        assert_eq!(test_matrix.cryptix_hash(hash), expected_hash);
     }
     #[test]
     fn test_generate_matrix() {
