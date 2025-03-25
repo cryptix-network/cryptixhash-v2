@@ -51,22 +51,24 @@ __device__ __inline__ void amul4bit(uint32_t packed_vec1[32], uint32_t packed_ve
     *ret = res;
 }
 
+// Sbox
 __device__ __inline__ uint8_t generate_non_linear_sbox(uint8_t input, uint8_t key) {
-    uint8_t result = input;
-    result = result * key;  
-    result = (result >> 3) | (result << 5);  
-    result ^= 0x5A;  
-    return result;
+    input *= key;
+    input = (input >> 3) | (input << 5);
+    return input ^ 0x5A;
 }
 
+// Rotate left
 __device__ __inline__ uint8_t rotate_left(uint8_t value, int shift) {
     return (value << shift) | (value >> (8 - shift));
 }
 
+// Rotate right
 __device__ __inline__ uint8_t rotate_right(uint8_t value, int shift) {
     return (value >> shift) | (value << (8 - shift));
 }
 
+// Main
 extern "C" {
     __global__ void heavy_hash(const uint64_t nonce_mask, const uint64_t nonce_fixed, const uint64_t nonces_len, uint8_t random_type, void* states, uint64_t *final_nonce) {
         
@@ -96,39 +98,36 @@ extern "C" {
 
             // Use the first byte of the calculated hash to determine the number of iterations
             uint8_t first_byte = hash_.hash[0]; 
-            uint8_t iteration_count = (uint8_t)((first_byte % 2) + 1); 
+            uint8_t iteration_count = (uint8_t)((first_byte % 3) + 1); 
 
-            memcpy(sha3_hash, hash_.hash, 32); // Copy the input hash to start
+            memcpy(sha3_hash, hash_.hash, 32);
 
             for (uint8_t i = 0; i < iteration_count; ++i) {
-                sha3(sha3_hash, 32, sha3_hash, 32); // SHA-3 calculation and saving the result in sha3_hash
+                sha3(sha3_hash, 32, sha3_hash, 32); 
             }
 
             // **Matrix Transformation**
-            uchar4 packed_hash[QUARTER_MATRIX_SIZE] = {0};
+            uchar4 packed_hash[QUARTER_MATRIX_SIZE];
             #pragma unroll
             for (int i = 0; i < QUARTER_MATRIX_SIZE; i++) {
-                packed_hash[i] = make_uchar4(
-                    (sha3_hash[2 * i] & 0xF0) >> 4,
-                    (sha3_hash[2 * i] & 0x0F),
-                    (sha3_hash[2 * i + 1] & 0xF0) >> 4,
-                    (sha3_hash[2 * i + 1] & 0x0F)
-                );
+                uint8_t h1 = sha3_hash[2 * i], h2 = sha3_hash[2 * i + 1];
+                packed_hash[i] = make_uchar4((h1 >> 4), (h1 & 0xF), (h2 >> 4), (h2 & 0xF));
             }
 
             uint32_t product1, product2;
             uint8_t product[32] = {0};
             #pragma unroll
             for (int rowId = 0; rowId < HALF_MATRIX_SIZE; rowId++) {
+                uint32_t product1, product2;
                 amul4bit((uint32_t *)(matrix[(2 * rowId)]), (uint32_t *)(packed_hash), &product1);
                 amul4bit((uint32_t *)(matrix[(2 * rowId + 1)]), (uint32_t *)(packed_hash), &product2);
-
-                uint8_t a_nibble = ((product1 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product1 >> 8) & 0xF));
-                uint8_t b_nibble = ((product2 & 0xF) ^ ((product1 >> 4) & 0xF) ^ ((product2 >> 8) & 0xF));
-
-                product[rowId] = (a_nibble << 4) | b_nibble;
+        
+                product[rowId] = (((product1 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product1 >> 8) & 0xF)) << 4) |
+                                 ((product2 & 0xF) ^ ((product1 >> 4) & 0xF) ^ ((product2 >> 8) & 0xF));
             }
 
+            // XOR the product with the original hash   
+            #pragma unroll
             for (int i = 0; i < 32; i++) {
                 product[i] ^= sha3_hash[i];
             }
@@ -136,13 +135,14 @@ extern "C" {
              // ### Memory Hard
 
             // **Non-Linear S-Box**
+            #pragma unroll
             uint8_t sbox[256];
             for (int i = 0; i < 256; i++) {
                 sbox[i] = sha3_hash[i % 32];  
             }
 
-            // Calculate dynamic number of iterations (between 3 and 9)
-            int iterations = 3 + (product[0] % 7);  
+            // Calculate dynamic number of iterations
+            int iterations = 3 + (product[0] % 5);  // 3 - 7
 
             for (int iter = 0; iter < iterations; iter++) {
                 uint8_t temp_sbox[256];
@@ -156,127 +156,30 @@ extern "C" {
             }
 
             // **Apply S-Box**
+            #pragma unroll
             for (int i = 0; i < 32; i++) {
                 product[i] ^= sbox[product[i]];
             }
 
-            //Branches
+            // **Branches**
+            #pragma unroll
             for (int i = 0; i < 32; i++) {
                 uint8_t cryptix_nonce = product[i];
-                uint8_t condition = ((product[i] ^ sha3_hash[i % 32]) ^ cryptix_nonce) % 9; // 9 cases
+                uint8_t condition = ((product[i] ^ sha3_hash[i % 32]) ^ cryptix_nonce) % 9;
+                uint8_t p = product[i];
 
                 switch (condition) {
-                    case 0:
-                        // Main case 0
-                        product[i] = (product[i] + 13) % 256;
-                        product[i] = rotate_left(product[i], 3);  // Rotate left by 3 bits
-        
-                        // Nested logic in case 0
-                        if (product[i] > 100) {
-                            product[i] = (product[i] + 0x20) % 256;  // Add 0x20 if greater than 100
-                        } else {
-                            product[i] = (product[i] - 0x10) % 256;  // Subtract 0x10 if not
-                        }
-                        break;
-                    case 1:
-                        // Main case 1
-                        product[i] = (product[i] - 7) % 256; 
-                        product[i] = rotate_left(product[i], 5);  // Rotate left by 5 bits
-        
-                        // Nested logic in case 1
-                        if (product[i] % 2 == 0) {
-                            product[i] = (product[i] + 0x11) % 256;  // Add 0x11 if even
-                        } else {
-                            product[i] = (product[i] - 0x05) % 256;  // Subtract 0x05 if odd
-                        }
-                        break;
-                    case 2:
-                        // Main case 2
-                        product[i] ^= 0x5A;                       // XOR with 0x5A
-                        product[i] = (product[i] + 0xAC) % 256;   // Add 0xAC
-        
-                        // Nested logic in case 2
-                        if (product[i] > 0x50) {
-                            product[i] = (product[i] * 2) % 256;   // Multiply by 2 if greater than 0x50
-                        } else {
-                            product[i] = (product[i] / 3) % 256;   // Divide by 3 if not
-                        }
-                        break;
-                    case 3:
-                        // Main case 3
-                        product[i] = (product[i] * 17) % 256;   // Multiply by 17
-                        product[i] ^= 0xAA;                      // XOR with 0xAA
-        
-                        // Nested logic in case 3
-                        if (product[i] % 4 == 0) {
-                            product[i] = rotate_left(product[i], 4);  // Rotate left by 4 bits if divisible by 4
-                        } else {
-                            product[i] = rotate_right(product[i], 2); // Rotate right by 2 bits if not
-                        }
-                        break;
-                    case 4:
-                        // Main case 4
-                        product[i] = (product[i] - 29) % 256;  // Subtract 29
-                        product[i] = rotate_left(product[i], 1); // Rotate left by 1 bit
-        
-                        // Nested logic in case 4
-                        if (product[i] < 50) {
-                            product[i] = (product[i] + 0x55) % 256;  // Add 0x55 if less than 50
-                        } else {
-                            product[i] = (product[i] - 0x22) % 256;  // Subtract 0x22 if not
-                        }
-                        break;
-                    case 5:
-                        // Main case 5
-                        product[i] = (product[i] + (0xAA ^ cryptix_nonce)) % 256; // Add XOR of 0xAA and nonce
-                        product[i] ^= 0x45;  // XOR with 0x45
-        
-                        // Nested logic in case 5
-                        if (product[i] & 0x0F == 0) {
-                            product[i] = rotate_left(product[i], 6);  // Rotate left by 6 bits if lower nibble is 0
-                        } else {
-                            product[i] = rotate_right(product[i], 3); // Rotate right by 3 bits if not
-                        }
-                        break;
-                    case 6:
-                        // Main case 6
-                        product[i] = (product[i] + 0x33) % 256;  // Add 0x33
-                        product[i] = rotate_right(product[i], 4); // Rotate right by 4 bits
-        
-                        // Nested logic in case 6
-                        if (product[i] < 0x80) {
-                            product[i] = (product[i] - 0x22) % 256;  // Subtract 0x22 if less than 0x80
-                        } else {
-                            product[i] = (product[i] + 0x44) % 256;  // Add 0x44 if not
-                        }
-                        break;
-                    case 7:
-                        // Main case 7
-                        product[i] = (product[i] * 3) % 256;    // Multiply by 3
-                        product[i] = rotate_left(product[i], 2); // Rotate left by 2 bits
-        
-                        // Nested logic in case 7
-                        if (product[i] > 0x50) {
-                            product[i] = (product[i] + 0x11) % 256; // Add 0x11 if greater than 0x50
-                        } else {
-                            product[i] = (product[i] - 0x11) % 256; // Subtract 0x11 if not
-                        }
-                        break;
-                    case 8:
-                        // Main case 8
-                        product[i] = (product[i] - 0x10) % 256;  // Subtract 0x10
-                        product[i] = rotate_right(product[i], 3); // Rotate right by 3 bits
-        
-                        // Nested logic in case 8
-                        if (product[i] % 3 == 0) {
-                            product[i] = (product[i] + 0x55) % 256; // Add 0x55 if divisible by 3
-                        } else {
-                            product[i] = (product[i] - 0x33) % 256; // Subtract 0x33 if not
-                        }
-                        break;
-                    default:
-                        break;
+                    case 0: p = (p + 13) % 256; p = rotate_left(p, 3); p += (p > 100) ? 0x20 : -0x10; break;
+                    case 1: p = (p - 7) % 256; p = rotate_left(p, 5); p += (p % 2 == 0) ? 0x11 : -0x05; break;
+                    case 2: p ^= 0x5A; p = (p + 0xAC) % 256; p = (p > 0x50) ? (p * 2) % 256 : (p / 3) % 256; break;
+                    case 3: p = (p * 17) % 256; p ^= 0xAA; p = (p % 4 == 0) ? rotate_left(p, 4) : rotate_right(p, 2); break;
+                    case 4: p = (p - 29) % 256; p = rotate_left(p, 1); p += (p < 50) ? 0x55 : -0x22; break;
+                    case 5: p = (p + (0xAA ^ cryptix_nonce)) % 256; p ^= 0x45; p = ((p & 0x0F) == 0) ? rotate_left(p, 6) : rotate_right(p, 3); break;
+                    case 6: p = (p + 0x33) % 256; p = rotate_right(p, 4); p += (p < 0x80) ? -0x22 : 0x44; break;
+                    case 7: p = (p * 3) % 256; p = rotate_left(p, 2); p += (p > 0x50) ? 0x11 : -0x11; break;
+                    case 8: p = (p - 0x10) % 256; p = rotate_right(p, 3); p += (p % 3 == 0) ? 0x55 : -0x33; break;
                 }
+                product[i] = p;
             }
 
             memset(input, 0, 80);
