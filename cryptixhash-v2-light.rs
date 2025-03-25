@@ -1,32 +1,3 @@
-    // TODO:
-    // Better filling of the cache - Scattering is not sufficient
-    // Better filling of the Memory hard function - Scattering is not sufficient
-    // Performance optimization of illiterations.
-    // Correct values ​​for the cache & memory
-
-    // IDEA:
-    // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
-
-    use crate::matrix::Matrix;
-    use cryptix_consensus_core::{hashing, header::Header, BlockLevel};
-    use cryptix_hashes::PowHash;
-    use cryptix_math::Uint256;
-    use sha3::{Digest, Sha3_256};
-    use blake3;
-    
-    // Constants for the offsets
-    const SHA3_ROUND_OFFSET: usize = 8;
-    const B3_ROUND_OFFSET: usize = 4;
-    const ROUND_RANGE_SIZE: usize = 4;
-
-    
-/// State is an intermediate data structure with pre-computed values to speed up mining.
-pub struct State {
-    pub(crate) matrix: Matrix,
-    pub(crate) target: Uint256,
-    // PRE_POW_HASH || TIME || 32 zero byte padding; without NONCE
-    pub(crate) hasher: PowHash,
-}
 
 impl State {
     #[inline]
@@ -41,174 +12,45 @@ impl State {
         Self { matrix, target, hasher }
     }
 
-    // SHA3-256 Hash Function
-    fn sha3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
-        let mut sha3_hasher = Sha3_256::new();
-        sha3_hasher.update(&input);
-        let hash = sha3_hasher.finalize();
-        Ok(hash.into())
-    }
-
-    // Blake3 Hash Function
-    fn blake3_hash(input: [u8; 32]) -> Result<[u8; 32], String> {
-        let hash = blake3::hash(&input);
-        Ok(hash.into()) 
-    }
-
-    // **Calculate BLAKE3 rounds based on input**
-    fn calculate_b3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        // Extract the slice from input based on the B3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = input.get(B3_ROUND_OFFSET..B3_ROUND_OFFSET + ROUND_RANGE_SIZE)
-            .ok_or("Input slice for Blake3 rounds is out of bounds")?;
-    
-        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-        Ok((value % 5 + 1) as usize) // Returns rounds between 1 and 5
-    }
-
-    // **Calculate SHA3 rounds based on input**
-    fn calculate_sha3_rounds(input: [u8; 32]) -> Result<usize, String> {
-        // Extract the slice from input based on the SHA3_ROUND_OFFSET and ROUND_RANGE_SIZE
-        let slice = input.get(SHA3_ROUND_OFFSET..SHA3_ROUND_OFFSET + ROUND_RANGE_SIZE)
-            .ok_or("Input slice for SHA3 rounds is out of bounds")?;
-    
-        let value = u32::from_le_bytes(slice.try_into().map_err(|_| "Failed to convert slice to u32".to_string())?);
-        Ok((value % 4 + 1) as usize) // Returns rounds between 1 and 4
-    }
-
-    // Bitwise manipulations on data
-    fn bit_manipulations(data: &mut [u8; 32]) {
-        for i in 0..32 {
-            // Non-linear manipulations with pseudo-random patterns
-            let b = data[(i + 1) % 32];
-            data[i] ^= b; // XOR with next byte
-            data[i] = data[i].rotate_left(3); // Rotation
-            data[i] = data[i].wrapping_add(0x9F) & 0xFF; // Random constant
-            data[i] &= 0xFE; // AND with mask to set certain bits
-            data[i] ^= ((i as u8) << 2) & 0xFF; // XOR with index shifted
-        }
-    }
-    
-    //Byte Mixing
-    fn byte_mixing(sha3_hash: &[u8; 32], b3_hash: &[u8; 32]) -> [u8; 32] {
-        let mut temp_buf = [0u8; 32];
-        for i in 0..32 {
-            let a = sha3_hash[i];
-            let b = b3_hash[i];
-            
-            // bitwise AND and OR
-            let and_result = a & b;
-            let or_result = a | b;
-            
-            // bitwise rotation and shift
-            let rotated = or_result.rotate_left(5);  // Rotate left by 5 bits
-            let shifted = and_result.wrapping_shl(3);  // Shift left by 3 bits
-            
-            // Combine the results
-            let mixed = rotated ^ shifted;  // XOR the results
-            
-            temp_buf[i] = mixed;  // Store the result in the temporary buffer
-        }
-        temp_buf
-    }
+    // #[inline]
+    // #[must_use]
+    // /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
+    // pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
+    //     // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
+    //     let hash = self.hasher.clone().finalize_with_nonce(nonce);
+        // let hash = self.matrix.heavy_hash(hash);
+    //     Uint256::from_le_bytes(hash.as_bytes())
+    // }
 
     #[inline]
     #[must_use]
     /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
     pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-        // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
+        // Calculate the hash with the nonce
         let hash = self.hasher.clone().finalize_with_nonce(nonce);
+        let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
     
-        let mut hash_bytes: [u8; 32];
-        match hash.as_bytes().try_into() {
-            Ok(bytes) => hash_bytes = bytes,
-            Err(_) => {
-                println!("Hash output length mismatch");
-                return Uint256::default();  
-            }
+        // Use the first byte of the hash to determine the number of iterations
+        let iterations = (hash_bytes[0] % 2) + 1;  // The first byte modulo 3, plus 1 for the range [1, 2]
+    
+        // Iterative SHA-3 process
+        let mut sha3_hasher = Sha3_256::new();
+        let mut current_hash = hash_bytes;
+    
+        // Iterate according to the number of iterations
+        for _ in 0..iterations {
+            sha3_hasher.update(&current_hash);
+            let sha3_hash = sha3_hasher.finalize_reset();
+            current_hash = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
         }
     
-        // **Branches for Byte Manipulation**
-        for i in 0..32 {
-            let condition = (hash_bytes[i] ^ (nonce as u8)) % 6; // 6 Cases
-            match condition {
-                0 => {
-                    hash_bytes[i] = hash_bytes[i].wrapping_add(13); // Add 13
-                    hash_bytes[i] = hash_bytes[i].rotate_left(3);  // Rotate left by 3 bits
-                },
-                1 => {
-                    hash_bytes[i] = hash_bytes[i].wrapping_sub(7);  // Subtract 7
-                    hash_bytes[i] = hash_bytes[i].rotate_left(5);   // Rotate left by 5 bits
-                },
-                2 => {
-                    hash_bytes[i] ^= 0x5A;                         // XOR with 0x5A
-                    hash_bytes[i] = hash_bytes[i].wrapping_add(0xAC); // Add 0xAC
-                },
-                3 => {
-                    hash_bytes[i] = hash_bytes[i].wrapping_mul(17); // Multiply by 17
-                    hash_bytes[i] ^= 0xAA;                          // XOR with 0xAA
-                },
-                4 => {
-                    hash_bytes[i] = hash_bytes[i].wrapping_sub(29); // Subtract 29
-                    hash_bytes[i] = hash_bytes[i].rotate_left(1);  // Rotate left by 1 bit
-                },
-                5 => {
-                    hash_bytes[i] = hash_bytes[i].wrapping_add(0xAA ^ nonce as u8); // Add XOR of 0xAA and nonce
-                    hash_bytes[i] ^= 0x45;                          // XOR with 0x45
-                },
-                _ => unreachable!(), // Should never happens
-            }
-        }
-
-        // **Bitmanipulation**
-        Self::bit_manipulations(&mut hash_bytes);
-
-        let b3_rounds = State::calculate_b3_rounds(hash_bytes).unwrap_or(1); // default 1
-        let sha3_rounds = State::calculate_sha3_rounds(hash_bytes).unwrap_or(1); // default 1
-
-        let extra_rounds = (hash_bytes[0] % 6) as usize;  // Dynamic rounds 0 - 5
-
-        let sha3_hash: [u8; 32];
-        let b3_hash: [u8; 32];
-        let m_hash: [u8; 32];
-
-        // **Dynamic Number of Rounds for Blake3**
-        for _ in 0..(b3_rounds + extra_rounds) {
-            hash_bytes = Self::blake3_hash(hash_bytes).unwrap_or([0; 32]); // Apply Blake3 hash
-
-            // Branching based on hash value
-            if hash_bytes[5] % 2 == 0 { 
-                hash_bytes[10] ^= 0xAA; // XOR with 0xAA if byte 5 is even
-            } else {
-                hash_bytes[15] = hash_bytes[15].wrapping_add(23); // Add 23 if byte 5 is odd
-            }
-        }
-
-        b3_hash = hash_bytes; // Store final Blake3 hash
-
-        // **Dynamic Number of Rounds for SHA3**
-        for _ in 0..(sha3_rounds + extra_rounds) {
-            hash_bytes = Self::sha3_hash(hash_bytes).unwrap_or([0; 32]); // Apply SHA3 hash
-
-            // ASIC-unfriendly conditions
-            if hash_bytes[3] % 3 == 0 { 
-                hash_bytes[20] ^= 0x55; // XOR with 0x55 if byte 3 is divisible by 3
-            } else if hash_bytes[7] % 5 == 0 { 
-                hash_bytes[25] = hash_bytes[25].rotate_left(7); // Rotate left by 7 if byte 7 is divisible by 5
-            }
-        }
-
-        sha3_hash = hash_bytes; // Store final sha3 hash
-
-        // Mix SHA3 and Blake3 hash results
-        m_hash = Self::byte_mixing(&sha3_hash, &b3_hash);
+        // Final computation with matrix.cryptix_hash
+        let final_hash = self.matrix.cryptix_hash(cryptix_hashes::Hash::from(current_hash));
     
-        // Final computation with matrix.heavy_hash
-        let final_hash = self.matrix.cryptix_hash(cryptix_hashes::Hash::from(m_hash));
-        
-        // Finally 
+        // Return the final result as Uint256
         Uint256::from_le_bytes(final_hash.as_bytes())
     }
-
+    
     #[inline]
     #[must_use]
     pub fn check_pow(&self, nonce: u64) -> (bool, Uint256) {
@@ -218,12 +60,6 @@ impl State {
     }
 }
 
-use crate::xoshiro::XoShiRo256PlusPlus;
-use cryptix_hashes::{Hash, CryptixHashV2};
-use std::mem::MaybeUninit;
-
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Matrix([[u16; 64]; 64]);
 
 impl Matrix {
     // pub fn generate(hash: Hash) -> Self {
@@ -318,91 +154,84 @@ impl Matrix {
         rank
     }
 
+    /* 
+    // ### Cryptixhash v3
 
-    // TODO:
-    // Better filling of the cache - Scattering is not sufficient
-    // Better filling of the Memory hard function - Scattering is not sufficient
-    // Performance optimization of illiterations.
-    // Correct values ​​for the cache & memory
+    // generate_non_linear_sbox method
+    pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
+        let mut result = input;
 
-    // IDEA:
-    // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
+        // Calculate the inverse in GF(2^8)
+        result = Self::gf_invert(result);
 
+        // Affine transformation (left rotation, XOR with constant 0x63)
+        result = Self::affine_transform(result);
 
-    // Const Final Cryptix
-    const FINAL_CRYPTIX: [u8; 32] = [
-        0xE4, 0x7F, 0x3F, 0x73, 
-        0xB4, 0xF2, 0xD2, 0x8C, 
-        0x55, 0xD1, 0xE7, 0x6B, 
-        0xE0, 0xAD, 0x70, 0x55, 
-        0xCB, 0x3F, 0x8C, 0x8F, 
-        0xF5, 0xA0, 0xE2, 0x60, 
-        0x81, 0xC2, 0x5A, 0x84, 
-        0x32, 0x81, 0xE4, 0x92,
-    ];    
+        // XOR with the key for additional diffusion
+        result ^= key;
 
+        result
+    }
 
-    // Anti-ASIC cache
-    pub fn anti_asic_cache(product: &mut [u8; 32]) {
-        const CACHE_SIZE: usize = 4096;  // 4 KB
-        let mut cache = [0u8; CACHE_SIZE];
-
-        let mut index: usize = 0;
-
-        // Cache initialization
-        let mut hash_value = 0u8;
-        for i in 0..CACHE_SIZE { 
-            // Combine product values with cache indices
-            hash_value = (product[i % 32] ^ i as u8).wrapping_add(hash_value);
-            cache[i] = hash_value;  // starting pattern
+    // Inverse calculation and affine transformation
+    fn gf_invert(value: u8) -> u8 {
+        if value == 0 {
+            return 0; // The inverse of 0 is 0
         }
-        
-        for _ in 0..8 { 
-            for i in 0..32 {
-                // XOR for destructive cache effect
-                index = (index.rotate_left(5) ^ (product[i] as usize).wrapping_mul(17)) % CACHE_SIZE;
-                cache[index] ^= product[i]; 
-                
-                // Unpredictable index mapping
-                let safe_index = ((index * 7) % CACHE_SIZE).min(CACHE_SIZE - 1);
-                index = (index.wrapping_add(product[i] as usize * 23) ^ cache[safe_index] as usize) % CACHE_SIZE;
-                cache[index] ^= product[(i + 11) % 32];
 
-                // Data-Dependent Memory Access
-                let dynamic_offset = ((cache[index] as usize * 37) ^ (product[i] as usize * 19)) % CACHE_SIZE;
-                cache[dynamic_offset] ^= product[(i + 3) % 32];
+        let mut t = 0u8;
+        let r: u16 = 0x11b; // The irreducible polynomial as u16
+        let mut v = value;
+        let mut u: u16 = 1; // 1 in GF(2^8)
+
+        // Extended Euclidean algorithm
+        for _ in 0..8 {
+            if v & 1 == 1 {
+                t ^= u as u8; // Cast the result as u8
+            }
+
+            v >>= 1;
+            u = (u << 1) ^ (if v & 0x80 != 0 { r } else { 0 });
+
+            if u & 0x100 != 0 {
+                u ^= 0x11b; // XOR with irreducible polynomial
             }
         }
 
-        // Link cache values ​​back to product
-        for i in 0..32{
-            let shift_val = (product[i] as usize * 47 + i) % CACHE_SIZE;
-            product[i] ^= cache[shift_val];
-        }
-
+        t
     }
 
-    // Non linear sbox
+    // Affine Transformation (left rotation + XOR with constant 0x63)
+    fn affine_transform(value: u8) -> u8 {
+        let mut result = value;
+        result = result.rotate_left(4) ^ result; // Left rotation + XOR with itself (for diffusion)
+        result ^= 0x63; // XOR with a constant (similar to AES)
+        result
+    }*/
+
+    // Non-linear S-box generation
     pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
         let mut result = input;
-    
-        // A combination of multiplication and bitwise permutation
+
+        // Combination of multiplication and bitwise permutation
         result = result.wrapping_mul(key);          // Multiply by the key
-        result = (result >> 3) | (result << 5);    // Bitwise permutation (rotation)
-        result ^= 0x5A;                             // XOR
-    
+        result = (result >> 3) | (result << 5);    // Bitwise permutation (Rotation)
+        result ^= 0x5A;                             // XOR with 0x5A
+
         result
     }
 
     pub fn cryptix_hash(&self, hash: Hash) -> Hash {
-        let hash_bytes = hash.as_bytes(); 
+        // Convert the hash to its byte representation
+        let hash_bytes = hash.as_bytes();
 
+        // Create an array containing the nibbles (4-bit halves of the bytes)
         let nibbles: [u8; 64] = {
             let o_bytes = hash.as_bytes();
             let mut arr = [0u8; 64];
             for (i, &byte) in o_bytes.iter().enumerate() {
-                arr[2 * i]     = byte >> 4;
-                arr[2 * i + 1] = byte & 0x0F;
+                arr[2 * i]     = byte >> 4;               // Store the high nibble
+                arr[2 * i + 1] = byte & 0x0F;             // Store the low nibble
             }
             arr
         };
@@ -414,84 +243,177 @@ impl Matrix {
             let mut sum2 = 0u16;
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
-                sum1 += self.0[2 * i][j] * elem;
+                sum1 += self.0[2 * i][j] * elem;   // Matrix multiplication
                 sum2 += self.0[2 * i + 1][j] * elem;
             }
-    
-            let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF);
+            
+            // Combine the nibbles back into bytes
+            let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF); // Combine the bits
             let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
     
-            product[i] = ((a_nibble << 4) | b_nibble) as u8;
-        }
-    
-        product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h);
-    
-        // **Memory-Hard**
-        let mut memory_table: [u8; 16 * 1024] = [0; 16 * 1024]; // 16 KB
-        let mut index: usize = 0;
-
-        // Repeat calculations and manipulations on memory
-        for i in 0..32 {
-            let mut sum = 0u16;
-            for j in 0..64 {
-                sum += nibbles[j] as u16 * self.0[2 * i][j] as u16;
-            }
-
-            // ** non-linear memory accesses:**
-            for _ in 0..12 { 
-                index ^= (memory_table[(index * 7 + i) % memory_table.len()] as usize * 19) ^ ((i * 53) % 13);
-                index = (index * 73 + i * 41) % memory_table.len(); 
-            
-                // Index paths
-                let shifted = (index.wrapping_add(i * 13)) % memory_table.len();
-                memory_table[shifted] ^= (sum & 0xFF) as u8;
-            }
+            product[i] = ((a_nibble << 4) | b_nibble) as u8; // Combine to form final byte
         }
 
-        // Final memory-hash result
-        for i in 0..32 {
-            let shift_val = (product[i] as usize * 47 + i) % memory_table.len();
-            product[i] ^= memory_table[shift_val];
-        }
-
-        // final xor
-        for i in 0..32 {
-            product[i] ^= Self::FINAL_CRYPTIX[i];
-        }
-
-        // **Anti-ASIC Cache **
-        Self::anti_asic_cache(&mut product);               
+        // XOR the product with the original hash   
+        product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h); // Apply XOR with the hash
+        
+        // ### Memory Hard
 
         // **Apply nonlinear S-Box**
         let mut sbox: [u8; 256] = [0; 256];
 
-        // Calculate S-Box with the product value and hash values
-        for _ in 0..6 {  
+        // Fill the S-box using the bytes of the hash
+        for i in 0..256 {
+            sbox[i] = hash_bytes[i % hash_bytes.len()]; // Wrap around the hash bytes
+        }
+
+        // Number of iterations depends on the first byte of the product
+        let iterations = 3 + (product[0] % 7);  // Modulo 7 gives values ​​from 0 to 6 → +3 gives 3 to 9
+
+        for _ in 0..iterations {  
+            let mut temp_sbox = sbox;
+            
             for i in 0..256 { 
-                let mut value = i as u8;
-                value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()]);
-                value ^= value.rotate_left(4) | value.rotate_right(2);
-                sbox[i] = value;
+                let mut value = temp_sbox[i];  
+                
+                // Generate nonlinear value based on Hash + Product
+                value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()] ^ product[i % product.len()]); 
+                
+                // Bitwise rotation + XOR
+                value ^= value.rotate_left(4) | value.rotate_right(2); 
+                temp_sbox[i] = value; 
+            }
+
+            sbox = temp_sbox; // Update the S-Box after the round
+        }
+
+        // Apply the final S-Box transformation to the product with XOR
+        for i in 0..32 {
+            product[i] ^= sbox[product[i] as usize]; // XOR product with S-Box values
+        }
+
+        // **Branches for Byte Manipulation**
+        for i in 0..32 {
+            // Nonce from s-box product
+            let cryptix_nonce = product[i];
+            let condition = (product[i] ^ (hash_bytes[i % hash_bytes.len()] ^ cryptix_nonce)) % 9;
+            
+            match condition {
+                0 => {
+                    // Main case 0
+                    product[i] = product[i].wrapping_add(13);  // Add 13
+                    product[i] = product[i].rotate_left(3);    // Rotate left by 3 bits
+                    
+                    // Nested cases in case 0
+                    if product[i] > 100 {
+                        product[i] = product[i].wrapping_add(0x20);  // Add 0x20 if greater than 100
+                    } else {
+                        product[i] = product[i].wrapping_sub(0x10);  // Subtract 0x10 if not
+                    }
+                },
+                1 => {
+                    // Main case 1
+                    product[i] = product[i].wrapping_sub(7);   // Subtract 7
+                    product[i] = product[i].rotate_left(5);    // Rotate left by 5 bits
+                    
+                    // Nested case inside case 1
+                    if product[i] % 2 == 0 {
+                        product[i] = product[i].wrapping_add(0x11); // Add 0x11 if even
+                    } else {
+                        product[i] = product[i].wrapping_sub(0x05); // Subtract 0x05 if odd
+                    }
+                },
+                2 => {
+                    // Main case 2
+                    product[i] ^= 0x5A;                       // XOR with 0x5A
+                    product[i] = product[i].wrapping_add(0xAC); // Add 0xAC
+                    
+                    // Nested case inside case 2
+                    if product[i] > 0x50 {
+                        product[i] = product[i].wrapping_mul(2);   // Multiply by 2 if greater than 0x50
+                    } else {
+                        product[i] = product[i].wrapping_div(3);   // Divide by 3 if not
+                    }
+                },
+                3 => {
+                    // Main case 3
+                    product[i] = product[i].wrapping_mul(17);   // Multiply by 17
+                    product[i] ^= 0xAA;                        // XOR with 0xAA
+                    
+                    // Nested case inside case 3
+                    if product[i] % 4 == 0 {
+                        product[i] = product[i].rotate_left(4); // Rotate left by 4 bits if divisible by 4
+                    } else {
+                        product[i] = product[i].rotate_right(2); // Rotate right by 2 bits if not
+                    }
+                },
+                4 => {
+                    // Main case 4
+                    product[i] = product[i].wrapping_sub(29);   // Subtract 29
+                    product[i] = product[i].rotate_left(1);     // Rotate left by 1 bit
+                    
+                    // Nested case inside case 4
+                    if product[i] < 50 {
+                        product[i] = product[i].wrapping_add(0x55); // Add 0x55 if less than 50
+                    } else {
+                        product[i] = product[i].wrapping_sub(0x22); // Subtract 0x22 if not
+                    }
+                },
+                5 => {
+                    // Main case 5
+                    product[i] = product[i].wrapping_add(0xAA ^ cryptix_nonce as u8); // Add XOR of 0xAA and nonce
+                    product[i] ^= 0x45;                        // XOR with 0x45
+                    
+                    // Nested case inside case 5
+                    if product[i] & 0x0F == 0 {
+                        product[i] = product[i].rotate_left(6); // Rotate left by 6 bits if lower nibble is 0
+                    } else {
+                        product[i] = product[i].rotate_right(3); // Rotate right by 3 bits if not
+                    }
+                },
+                6 => {
+                    // Main case 6
+                    product[i] = product[i].wrapping_add(0x33);  // Add 0x33
+                    product[i] = product[i].rotate_right(4);     // Rotate right by 4 bits
+                    
+                    // Nested case inside case 6
+                    if product[i] < 0x80 {
+                        product[i] = product[i].wrapping_sub(0x22); // Subtract 0x22 if less than 0x80
+                    } else {
+                        product[i] = product[i].wrapping_add(0x44); // Add 0x44 if not
+                    }
+                },
+                7 => {
+                    // Main case 7
+                    product[i] = product[i].wrapping_mul(3);     // Multiply by 3
+                    product[i] = product[i].rotate_left(2);      // Rotate left by 2 bits
+                    
+                    // Nested case inside case 7
+                    if product[i] > 0x50 {
+                        product[i] = product[i].wrapping_add(0x11); // Add 0x11 if greater than 0x50
+                    } else {
+                        product[i] = product[i].wrapping_sub(0x11); // Subtract 0x11 if not
+                    }
+                },
+                8 => {
+                    // Main case 8
+                    product[i] = product[i].wrapping_sub(0x10);   // Subtract 0x10
+                    product[i] = product[i].rotate_right(3);      // Rotate right by 3 bits
+                    
+                    // Nested case inside case 8
+                    if product[i] % 3 == 0 {
+                        product[i] = product[i].wrapping_add(0x55); // Add 0x55 if divisible by 3
+                    } else {
+                        product[i] = product[i].wrapping_sub(0x33); // Subtract 0x33 if not
+                    }
+                },
+                _ => unreachable!(), // This should never happen
             }
         }
-        
-        // Apply S-Box to the product
-        for i in 0..32 {
-            product[i] = sbox[product[i] as usize];
-        }     
-        
-        CryptixHashV2::hash(Hash::from_bytes(product))
+
+        // Final Cryptixhash v2
+        CryptixHashV2::hash(Hash::from_bytes(product)) // Return
     }
 }
 
-pub fn array_from_fn<F, T, const N: usize>(mut cb: F) -> [T; N]
-where
-    F: FnMut(usize) -> T,
-{
-    let mut idx = 0;
-    [(); N].map(|_| {
-        let res = cb(idx);
-        idx += 1;
-        res
-    })
-}
+
