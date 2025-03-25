@@ -104,31 +104,52 @@ extern "C" {
                 sha3_hash[i] = hash_.hash[i];
             }
             
-            // SHA3 from first byte
+            // Iterative SHA3 process
             for (uint8_t i = 0; i < iteration_count; ++i) {
-                sha3(sha3_hash, 32, sha3_hash, 32);
+                sha3(sha3_hash, 32, sha3_hash, 32);  // Perform SHA3 operation on sha3_hash
 
-                // Condition
+                // Conditions based on hash values
                 if (sha3_hash[3] % 3 == 0) { 
-                    sha3_hash[20] ^= 0x55; 
+                    uint8_t repeat = (sha3_hash[4] % 3) + 1; // 1-3 iterations
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[20] ^= 0x55; // XOR with 0x55
+                    }
                 } 
                 else if (sha3_hash[7] % 5 == 0) { 
-                    sha3_hash[25] = rotate_left(sha3_hash[25], 7); 
+                    uint8_t repeat = (sha3_hash[8] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[25] = rotate_left(sha3_hash[25], 7); // Rotate left by 7
+                    }
                 } 
                 else if (sha3_hash[5] % 2 == 0) { 
-                    sha3_hash[10] ^= 0xAA; 
+                    uint8_t repeat = (sha3_hash[6] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[10] ^= 0xAA; // XOR with 0xAA
+                    }
                 } 
                 else if (sha3_hash[6] % 4 == 0) {
-                    sha3_hash[15] = rotate_left(sha3_hash[15], 3); 
+                    uint8_t repeat = (sha3_hash[7] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[15] = rotate_left(sha3_hash[15], 3); // Rotate left by 3
+                    }
                 } 
                 else if (sha3_hash[8] % 7 == 0) {
-                    sha3_hash[30] ^= 0xFF; 
+                    uint8_t repeat = (sha3_hash[9] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[30] ^= 0xFF; // XOR with 0xFF
+                    }
                 } 
                 else if (sha3_hash[9] % 11 == 0) {
-                    sha3_hash[5] = rotate_right(sha3_hash[5], 4); 
+                    uint8_t repeat = (sha3_hash[10] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[5] = rotate_right(sha3_hash[5], 4); // Rotate right by 4
+                    }
                 } 
                 else if (sha3_hash[12] % 13 == 0) {
-                    sha3_hash[18] = rotate_left(sha3_hash[18], 2); 
+                    uint8_t repeat = (sha3_hash[13] % 3) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        sha3_hash[18] = rotate_left(sha3_hash[18], 2); // Rotate left by 2
+                    }
                 }
             }
 
