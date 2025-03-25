@@ -29,19 +29,22 @@ Hardware Mining Tests ✅
  
 Planning ✅
 
-Coding 🔄
+Coding ✅
 
-Integration 🚧
+Integration ✅
 
-Testing 🚧
+Testing ✅
 
-Hardware Mining Tests 🚧
+Hardware Mining Tests ✅
 
 
 
 - Total Hash:
 
-Balancing and performance optimization 🚧
+Balancing and performance optimization 🔄
+CPU Tests 🔄 
+GPU Tests 🔄
+
 
 
 
