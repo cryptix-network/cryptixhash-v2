@@ -50,7 +50,6 @@ __device__ __inline__ void amul4bit(uint32_t packed_vec1[32], uint32_t packed_ve
     }
     *ret = res;
 }
-
 // Sbox
 __device__ __inline__ uint8_t generate_non_linear_sbox(uint8_t input, uint8_t key) {
     input *= key;
@@ -96,14 +95,25 @@ extern "C" {
             memcpy(input + HASH_HEADER_SIZE, (uint8_t *)(&nonce), 8);
             hash(powP, hash_.hash, input);
 
-            // Use the first byte of the calculated hash to determine the number of iterations
+            // Sha3 - The first byte modulo 2, plus 1 for the range [1, 2]
             uint8_t first_byte = hash_.hash[0]; 
-            uint8_t iteration_count = (uint8_t)((first_byte % 3) + 1); 
+            uint8_t iteration_count = (uint8_t)((first_byte % 2) + 1); 
 
-            memcpy(sha3_hash, hash_.hash, 32);
-
+            #pragma unroll
+            for (int i = 0; i < 32; i++) {
+                sha3_hash[i] = hash_.hash[i];
+            }
+            
+            // SHA3 Iterationen basierend auf dem ersten Byte
             for (uint8_t i = 0; i < iteration_count; ++i) {
-                sha3(sha3_hash, 32, sha3_hash, 32); 
+                sha3(sha3_hash, 32, sha3_hash, 32);
+
+                // Condition
+                if (sha3_hash[3] % 3 == 0) { 
+                    sha3_hash[20] ^= 0x55; 
+                } else if (sha3_hash[7] % 5 == 0) { 
+                    sha3_hash[25] = rotate_left(sha3_hash[25], 7); 
+                }
             }
 
             // **Matrix Transformation**
@@ -142,7 +152,7 @@ extern "C" {
             }
 
             // Calculate dynamic number of iterations
-            int iterations = 3 + (product[0] % 5);  // 3 - 7
+            int iterations = 3 + (product[0] % 4);  // 3 - 6
 
             for (int iter = 0; iter < iterations; iter++) {
                 uint8_t temp_sbox[256];
@@ -161,24 +171,87 @@ extern "C" {
                 product[i] ^= sbox[product[i]];
             }
 
-            // **Branches**
             #pragma unroll
             for (int i = 0; i < 32; i++) {
                 uint8_t cryptix_nonce = product[i];
                 uint8_t condition = ((product[i] ^ sha3_hash[i % 32]) ^ cryptix_nonce) % 9;
+            
                 uint8_t p = product[i];
-
-                switch (condition) {
-                    case 0: p = (p + 13) % 256; p = rotate_left(p, 3); p += (p > 100) ? 0x20 : -0x10; break;
-                    case 1: p = (p - 7) % 256; p = rotate_left(p, 5); p += (p % 2 == 0) ? 0x11 : -0x05; break;
-                    case 2: p ^= 0x5A; p = (p + 0xAC) % 256; p = (p > 0x50) ? (p * 2) % 256 : (p / 3) % 256; break;
-                    case 3: p = (p * 17) % 256; p ^= 0xAA; p = (p % 4 == 0) ? rotate_left(p, 4) : rotate_right(p, 2); break;
-                    case 4: p = (p - 29) % 256; p = rotate_left(p, 1); p += (p < 50) ? 0x55 : -0x22; break;
-                    case 5: p = (p + (0xAA ^ cryptix_nonce)) % 256; p ^= 0x45; p = ((p & 0x0F) == 0) ? rotate_left(p, 6) : rotate_right(p, 3); break;
-                    case 6: p = (p + 0x33) % 256; p = rotate_right(p, 4); p += (p < 0x80) ? -0x22 : 0x44; break;
-                    case 7: p = (p * 3) % 256; p = rotate_left(p, 2); p += (p > 0x50) ? 0x11 : -0x11; break;
-                    case 8: p = (p - 0x10) % 256; p = rotate_right(p, 3); p += (p % 3 == 0) ? 0x55 : -0x33; break;
+            
+                if (condition == 0) {
+                    p = (p + 13) % 256;
+                    p = rotate_left(p, 3);
+                    if (p > 100) {
+                        p += 0x20;
+                    } else {
+                        p -= 0x10;
+                    }
+                } else if (condition == 1) {
+                    p = (p - 7) % 256;
+                    p = rotate_left(p, 5);
+                    if (p % 2 == 0) {
+                        p += 0x11;
+                    } else {
+                        p -= 0x05;
+                    }
+                } else if (condition == 2) {
+                    p ^= 0x5A;
+                    p = (p + 0xAC) % 256;
+                    if (p > 0x50) {
+                        p = (p * 2) % 256;
+                    } else {
+                        p = (p / 3) % 256;
+                    }
+                } else if (condition == 3) {
+                    p = (p * 17) % 256;
+                    p ^= 0xAA;
+                    if (p % 4 == 0) {
+                        p = rotate_left(p, 4);
+                    } else {
+                        p = rotate_right(p, 2);
+                    }
+                } else if (condition == 4) {
+                    p = (p - 29) % 256;
+                    p = rotate_left(p, 1);
+                    if (p < 50) {
+                        p += 0x55;
+                    } else {
+                        p -= 0x22;
+                    }
+                } else if (condition == 5) {
+                    p = (p + (0xAA ^ cryptix_nonce)) % 256;
+                    p ^= 0x45;
+                    if ((p & 0x0F) == 0) {
+                        p = rotate_left(p, 6);
+                    } else {
+                        p = rotate_right(p, 3);
+                    }
+                } else if (condition == 6) {
+                    p = (p + 0x33) % 256;
+                    p = rotate_right(p, 4);
+                    if (p < 0x80) {
+                        p -= 0x22;
+                    } else {
+                        p += 0x44;
+                    }
+                } else if (condition == 7) {
+                    p = (p * 3) % 256;
+                    p = rotate_left(p, 2);
+                    if (p > 0x50) {
+                        p += 0x11;
+                    } else {
+                        p -= 0x11;
+                    }
+                } else if (condition == 8) {
+                    p = (p - 0x10) % 256;
+                    p = rotate_right(p, 3);
+                    if (p % 3 == 0) {
+                        p += 0x55;
+                    } else {
+                        p -= 0x33;
+                    }
                 }
+            
                 product[i] = p;
             }
 
@@ -192,6 +265,3 @@ extern "C" {
         }
     }
 }
-
-
-
