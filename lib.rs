@@ -35,45 +35,175 @@ impl State {
         Self { matrix, target, hasher }
     }
 
-    // #[inline]
-    // #[must_use]
-    // /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
-    // pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-    //     // Hasher already contains PRE_POW_HASH || TIME || 32 zero byte padding; so only the NONCE is missing
-    //     let hash = self.hasher.clone().finalize_with_nonce(nonce);
-        // let hash = self.matrix.heavy_hash(hash);
-    //     Uint256::from_le_bytes(hash.as_bytes())
-    // }
+    /// Calculates a Proof-of-Work (PoW) hash using an iterative, non-linear, and dynamic process.
+    /// 
+    /// The function takes a `nonce` as input and performs a series of cryptographic transformations, including
+    /// SHA-3-256 hashing, XOR operations, rotations, and shifts. The process is determined by dynamic conditions
+    /// and non-linear operations, making the algorithm harder to predict and protecting against hardware-based attacks
+    /// such as those using FPGAs.
+    /// 
+    /// # Key Operations and Non-linear Behavior:
+    /// 
+    /// 1. **Initial Hash Calculation:**  
+    ///    - A hash is calculated using the `nonce` via the `finalize_with_nonce` function, providing the starting point
+    ///      for all subsequent transformations.
+    ///    - The first byte of the resulting hash determines the number of iterations for the following SHA-3 hashing process, 
+    ///      introducing dynamic behavior that affects the flow of the calculation.
+    /// 
+    /// 2. **Iterations Based on the First Byte of the Hash:**  
+    ///    - The number of iterations (1 or 2) is determined by the first byte of the initial hash, making the process dynamic.
+    ///      This decision logic is non-linear and impacts the subsequent computations.
+    /// 
+    /// 3. **Dynamic Manipulations of the Hash Values:**  
+    ///    - In each iteration, the hash is further transformed through multiple dynamic conditions:
+    ///        - **XOR Operations:** Different bytes of the hash are XORed with fixed values (e.g., `0xAA`, `0x55`) based on the 
+    ///          values of other bytes. This creates unpredictable changes and contributes to the non-linear behavior.
+    ///        - **Rotations and Shifts:**  
+    ///          - Certain bytes in the hash are rotated (left or right) dynamically, based on hash values (e.g., byte 2, byte 4),
+    ///            introducing non-linear changes to the hash.
+    ///          - Shifts are also applied based on specific bytes. For example, byte 15 is rotated by a dynamic number of positions,
+    ///            further adding to the non-linear manipulation of the hash.
+    /// 
+    /// 4. **Repeated Transformations:**  
+    ///    - The number of repetitions for specific manipulations is controlled by values within the hash itself (e.g., `current_hash[2] % 4 + 1`).
+    ///      This means the number of operations varies dynamically with each iteration.
+    /// 
+    /// 5. **Dynamic Selection of Operations Based on Hash Values:**  
+    ///    - Different transformations are applied based on specific bytes in the hash. For example:
+    ///      - If `current_hash[1] % 4 == 0`, an XOR and rotation operation is performed on byte 15.
+    ///      - If `current_hash[3] % 3 == 0`, a different manipulation is applied to byte 20.
+    ///      - This dynamic selection ensures that each iteration is different and unpredictable.
+    /// 
+    /// 6. **Final Transformation and Result:**  
+    ///    - After all iterations, a final transformation of the hash is performed using the `matrix.cryptix_hash` function.
+    ///      This final calculation ensures that the result is influenced by all previous dynamic manipulations.
+    /// 
+    /// 7. **Returning the Final PoW Hash:**  
+    ///    - The calculated hash is returned as a `Uint256`, representing the final result of the PoW calculation.
+    /// 
 
     #[inline]
     #[must_use]
     /// PRE_POW_HASH || TIME || 32 zero byte padding || NONCE
     pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
-        // Calculate the hash with the nonce
+        // Calculate hash with nonce
         let hash = self.hasher.clone().finalize_with_nonce(nonce);
         let hash_bytes: [u8; 32] = hash.as_bytes().try_into().expect("Hash output length mismatch");
-    
-        // Use the first byte of the hash to determine the number of iterations
-        let iterations = (hash_bytes[0] % 2) + 1;  // The first byte modulo 3, plus 1 for the range [1, 2]
-    
-        // Iterative SHA-3 process
+
+        // Determine number of iterations from the first byte of the hash
+        let iterations = (hash_bytes[0] % 2) + 1;  // 1 or 2 iterations based on first byte
+        
+        // Start iterative SHA-3 process
         let mut sha3_hasher = Sha3_256::new();
         let mut current_hash = hash_bytes;
-    
-        // Iterate according to the number of iterations
-        for _ in 0..iterations {
+
+        // Perform iterations based on the first byte of the hash
+        for i in 0..iterations {
             sha3_hasher.update(&current_hash);
             let sha3_hash = sha3_hasher.finalize_reset();
             current_hash = sha3_hash.as_slice().try_into().expect("SHA-3 output length mismatch");
+
+            // Perform dynamic hash transformation based on conditions
+            if current_hash[1] % 4 == 0 {
+                // Calculate the number of iterations based on byte 2 (mod 4), ensuring it is between 1 and 4
+                let repeat = (current_hash[2] % 4) + 1; // 1-4 iterations based on the value of byte 2
+                
+                for _ in 0..repeat {
+                    // Apply XOR operation to byte 15 of the hash to alter its value
+                    current_hash[15] ^= 0xAA; // XOR with 0xAA
+
+                    // Dynamically choose the byte to calculate rotation based on the current iteration
+                    let rotation_byte = current_hash[(i % 32) as usize];  // Use different byte based on iteration index
+                    let rotation_amount = (rotation_byte % 5) + 1; // Rotation value is between 1 and 5
+                    
+                    // Perform rotation based on whether the rotation byte is even or odd
+                    if rotation_byte % 2 == 0 {
+                        // Rotate byte 15 to the left by 'rotation_amount' positions
+                        current_hash[15] = current_hash[15].rotate_left(rotation_amount as u32);
+                    } else {
+                        // Rotate byte 15 to the right by 'rotation_amount' positions
+                        current_hash[15] = current_hash[15].rotate_right(rotation_amount as u32);
+                    }
+
+                    // Perform additional bitwise manipulation on byte 15 using a shift
+                    // The shift amount is dynamically determined based on byte 4 (mod 8), with a range from 1 to 8
+                    let shift_amount = (current_hash[4] % 8) + 1; // Shift range: 1-8 positions
+                    current_hash[15] ^= current_hash[15].rotate_left(shift_amount as u32); // XOR with rotated value
+                }
+            } else if current_hash[3] % 3 == 0 {
+                let repeat = (current_hash[4] % 5) + 1;
+                for _ in 0..repeat {
+                    current_hash[20] ^= 0x55;
+
+                    let rotation_byte = current_hash[(i % 32) as usize];
+                    let rotation_amount = (rotation_byte % 4) + 1;
+                    if rotation_byte % 2 == 0 {
+                        current_hash[20] = current_hash[20].rotate_left(rotation_amount as u32);
+                    } else {
+                        current_hash[20] = current_hash[20].rotate_right(rotation_amount as u32);
+                    }
+
+                    let shift_amount = (current_hash[5] % 8) + 2;
+                    current_hash[20] ^= current_hash[20].rotate_left(shift_amount as u32);
+                }
+            } else if current_hash[2] % 6 == 0 {
+                let repeat = (current_hash[6] % 4) + 1;
+                for _ in 0..repeat {
+                    current_hash[10] ^= 0xFF;
+
+                    let rotation_byte = current_hash[(i % 32) as usize];  
+                    let rotation_amount = (rotation_byte % 3) + 1;
+                    if rotation_byte % 2 == 0 {
+                        current_hash[10] = current_hash[10].rotate_left(rotation_amount as u32);
+                    } else {
+                        current_hash[10] = current_hash[10].rotate_right(rotation_amount as u32);
+                    }
+
+                    let shift_amount = (current_hash[7] % 5) + 3;
+                    current_hash[10] ^= current_hash[10].rotate_left(shift_amount as u32);
+                }
+            } else if current_hash[7] % 5 == 0 {
+                let repeat = (current_hash[8] % 4) + 1;
+                for _ in 0..repeat {
+                    current_hash[25] ^= 0x66;
+
+                    let rotation_byte = current_hash[(i % 32) as usize]; 
+                    let rotation_amount = (rotation_byte % 3) + 2;
+                    if rotation_byte % 2 == 0 {
+                        current_hash[25] = current_hash[25].rotate_left(rotation_amount as u32);
+                    } else {
+                        current_hash[25] = current_hash[25].rotate_right(rotation_amount as u32);
+                    }
+
+                    let shift_amount = (current_hash[10] % 6) + 4;
+                    current_hash[25] ^= current_hash[25].rotate_left(shift_amount as u32);
+                }
+            } else if current_hash[8] % 7 == 0 {
+                let repeat = (current_hash[9] % 5) + 1;
+                for _ in 0..repeat {
+                    current_hash[30] ^= 0x77;
+
+                    let rotation_byte = current_hash[(i % 32) as usize];  
+                    let rotation_amount = (rotation_byte % 4) + 1;
+                    if rotation_byte % 2 == 0 {
+                        current_hash[30] = current_hash[30].rotate_left(rotation_amount as u32);
+                    } else {
+                        current_hash[30] = current_hash[30].rotate_right(rotation_amount as u32);
+                    }
+
+                    let shift_amount = (current_hash[11] % 7) + 2;
+                    current_hash[30] ^= current_hash[30].rotate_left(shift_amount as u32);
+                }
+            }
         }
-    
-        // Final computation with matrix.cryptix_hash
+
+        // Final computation using matrix.cryptix_hash
         let final_hash = self.matrix.cryptix_hash(cryptix_hashes::Hash::from(current_hash));
-    
+
         // Return the final result as Uint256
         Uint256::from_le_bytes(final_hash.as_bytes())
     }
-    
+  
     #[inline]
     #[must_use]
     pub fn check_pow(&self, nonce: u64) -> (bool, Uint256) {
