@@ -4,6 +4,10 @@
 #include "xoshiro256starstar.c"
 #include "sha3.c"
 
+typedef uint8_t u8; 
+typedef uint64_t u64; 
+typedef int64_t i64; 
+
 typedef uint8_t Hash[32];
 
 typedef union _uint256_t {
@@ -67,6 +71,68 @@ __device__ __inline__ uint8_t rotate_right(uint8_t value, int shift) {
     return (value >> shift) | (value << (8 - shift));
 }
 
+__device__ u64 wrapping_mul(i64 a, i64 b) {
+    i64 high, low;
+    asm("mul.lo.u64 %0, %1, %2;" : "=l"(low) : "l"(a), "l"(b));
+    asm("mul.hi.u64 %0, %1, %2;" : "=l"(high) : "l"(a), "l"(b));
+    return low;  
+}
+
+// Octonion
+__device__ void octonion_multiply(const i64 *a, const i64 *b, i64 *result) {
+    volatile i64 res[8];
+
+    res[0] = wrapping_mul(a[0], b[0]) - wrapping_mul(a[1], b[1]) - wrapping_mul(a[2], b[2]) - wrapping_mul(a[3], b[3]) 
+             - wrapping_mul(a[4], b[4]) - wrapping_mul(a[5], b[5]) - wrapping_mul(a[6], b[6]) - wrapping_mul(a[7], b[7]);
+
+    res[1] = wrapping_mul(a[0], b[1]) + wrapping_mul(a[1], b[0]) + wrapping_mul(a[2], b[3]) - wrapping_mul(a[3], b[2]) 
+             + wrapping_mul(a[4], b[5]) - wrapping_mul(a[5], b[4]) - wrapping_mul(a[6], b[7]) + wrapping_mul(a[7], b[6]);
+
+    res[2] = wrapping_mul(a[0], b[2]) - wrapping_mul(a[1], b[3]) + wrapping_mul(a[2], b[0]) + wrapping_mul(a[3], b[1]) 
+             + wrapping_mul(a[4], b[6]) - wrapping_mul(a[5], b[7]) + wrapping_mul(a[6], b[4]) - wrapping_mul(a[7], b[5]);
+
+    res[3] = wrapping_mul(a[0], b[3]) + wrapping_mul(a[1], b[2]) - wrapping_mul(a[2], b[1]) + wrapping_mul(a[3], b[0]) 
+             + wrapping_mul(a[4], b[7]) + wrapping_mul(a[5], b[6]) - wrapping_mul(a[6], b[5]) + wrapping_mul(a[7], b[4]);
+
+    res[4] = wrapping_mul(a[0], b[4]) - wrapping_mul(a[1], b[5]) - wrapping_mul(a[2], b[6]) - wrapping_mul(a[3], b[7]) 
+             + wrapping_mul(a[4], b[0]) + wrapping_mul(a[5], b[1]) + wrapping_mul(a[6], b[2]) + wrapping_mul(a[7], b[3]);
+
+    res[5] = wrapping_mul(a[0], b[5]) + wrapping_mul(a[1], b[4]) - wrapping_mul(a[2], b[7]) + wrapping_mul(a[3], b[6]) 
+             - wrapping_mul(a[4], b[1]) + wrapping_mul(a[5], b[0]) + wrapping_mul(a[6], b[3]) + wrapping_mul(a[7], b[2]);
+
+    res[6] = wrapping_mul(a[0], b[6]) + wrapping_mul(a[1], b[7]) + wrapping_mul(a[2], b[4]) - wrapping_mul(a[3], b[5]) 
+             - wrapping_mul(a[4], b[2]) + wrapping_mul(a[5], b[3]) + wrapping_mul(a[6], b[0]) + wrapping_mul(a[7], b[1]);
+
+    res[7] = wrapping_mul(a[0], b[7]) - wrapping_mul(a[1], b[6]) + wrapping_mul(a[2], b[5]) + wrapping_mul(a[3], b[4]) 
+             - wrapping_mul(a[4], b[3]) + wrapping_mul(a[5], b[2]) + wrapping_mul(a[6], b[1]) + wrapping_mul(a[7], b[0]);
+
+    for (int i = 0; i < 8; i++) {
+        result[i] = res[i];
+    }
+}
+
+// Octonion Hash
+__device__ void octonion_hash(const u8 *input_hash, i64 *oct) {
+
+    for (int i = 0; i < 8; i++) {
+        oct[i] = static_cast<i64>(input_hash[i]);
+    }
+
+    for (int i = 8; i < 32; i++) {
+        i64 rotation[8];
+
+        for (int j = 0; j < 8; j++) {
+            rotation[j] = static_cast<i64>(input_hash[(i + j) % 32]);
+        }
+
+        i64 result[8];
+        octonion_multiply(oct, rotation, result);
+
+        for (int j = 0; j < 8; j++) {
+            oct[j] = result[j];
+        }
+    }
+}
 
 // Main
 extern "C" {
@@ -109,98 +175,103 @@ extern "C" {
             for (uint8_t i = 0; i < iteration_count; ++i) {
                 sha3(sha3_hash, 32, sha3_hash, 32);  // Perform SHA3 operation on sha3_hash
 
-                // Complex bit manipulation and shifts for dynamic hash transformation
+                // Dynamic hash transformation based on conditions
                 if (sha3_hash[1] % 4 == 0) {
-                    uint8_t repeat = (sha3_hash[2] % 4) + 1; // 1-4 iterations
+                    uint8_t repeat = (sha3_hash[2] % 4) + 1; // 1-4 iterations based on the value of byte 2
                     for (uint8_t j = 0; j < repeat; ++j) {
-                        sha3_hash[15] ^= 0xAA; // Bitwise XOR
+                        // Dynamically select the byte to modify based on a combination of hash bytes and iteration
+                        uint8_t target_byte = ((sha3_hash[1] + i) % 32);  // Dynamic byte position for XOR
+                        uint8_t xor_value = sha3_hash[i % 16] ^ 0xA5; // Dynamic XOR value based on iteration index and hash
+                        sha3_hash[target_byte] ^= xor_value;  // XOR on dynamically selected byte
 
-                        // Dynamically calculate the rotation byte based on the current iteration index
+                        // Dynamically choose the byte to calculate rotation based on the current iteration
+                        uint8_t rotation_byte = sha3_hash[i % 32];  // Use different byte based on iteration index
+                        uint8_t rotation_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 2; // Combined rotation calculation
+
+                        // Perform rotation based on whether the rotation byte is even or odd
+                        if (rotation_byte % 2 == 0) {
+                            // Rotate byte at dynamic position to the left by 'rotation_amount' positions
+                            sha3_hash[target_byte] = rotate_left(sha3_hash[target_byte], rotation_amount);
+                        } else {
+                            // Rotate byte at dynamic position to the right by 'rotation_amount' positions
+                            sha3_hash[target_byte] = rotate_right(sha3_hash[target_byte], rotation_amount);
+                        }
+
+                        // Perform additional bitwise manipulation on the target byte using a shift
+                        uint8_t shift_amount = (sha3_hash[5] + sha3_hash[1]) % 3 + 1; // Combined shift calculation
+                        sha3_hash[target_byte] ^= rotate_left(sha3_hash[target_byte], shift_amount); // XOR with rotated value
+                    }
+                } else if (sha3_hash[3] % 3 == 0) {
+                    uint8_t repeat = (sha3_hash[4] % 5) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        uint8_t target_byte = ((sha3_hash[6] + i) % 32); 
+                        uint8_t xor_value = sha3_hash[i % 16] ^ 0x55;
+                        sha3_hash[target_byte] ^= xor_value;
+
                         uint8_t rotation_byte = sha3_hash[i % 32];
-                        uint8_t rotation_amount = (rotation_byte % 5) + 1;
-
-                        // Complex rotation pattern based on the rotation byte
+                        uint8_t rotation_amount = (sha3_hash[7] + sha3_hash[2]) % 6 + 1;
                         if (rotation_byte % 2 == 0) {
-                            sha3_hash[15] = rotate_left(sha3_hash[15], rotation_amount);
+                            sha3_hash[target_byte] = rotate_left(sha3_hash[target_byte], rotation_amount);
                         } else {
-                            sha3_hash[15] = rotate_right(sha3_hash[15], rotation_amount);
+                            sha3_hash[target_byte] = rotate_right(sha3_hash[target_byte], rotation_amount);
                         }
 
-                        // Additional bitwise manipulation
-                        uint8_t shift_amount = (sha3_hash[4] % 8) + 1;
-                        sha3_hash[15] ^= rotate_left(sha3_hash[15], shift_amount);
+                        uint8_t shift_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 1; 
+                        sha3_hash[target_byte] ^= rotate_left(sha3_hash[target_byte], shift_amount);
                     }
-                } 
-                else if (sha3_hash[3] % 3 == 0) {
-                    uint8_t repeat = (sha3_hash[4] % 5) + 1; 
+                } else if (sha3_hash[2] % 6 == 0) {
+                    uint8_t repeat = (sha3_hash[6] % 4) + 1;
                     for (uint8_t j = 0; j < repeat; ++j) {
-                        sha3_hash[20] ^= 0x55;
+                        uint8_t target_byte = ((sha3_hash[10] + i) % 32); 
+                        uint8_t xor_value = sha3_hash[i % 16] ^ 0xFF;
+                        sha3_hash[target_byte] ^= xor_value;
 
-                        uint8_t rotation_byte = sha3_hash[i % 32];
-                        uint8_t rotation_amount = (rotation_byte % 4) + 1;
-
+                        uint8_t rotation_byte = sha3_hash[i % 32];  
+                        uint8_t rotation_amount = (sha3_hash[7] + sha3_hash[7]) % 7 + 1;
                         if (rotation_byte % 2 == 0) {
-                            sha3_hash[20] = rotate_left(sha3_hash[20], rotation_amount);
+                            sha3_hash[target_byte] = rotate_left(sha3_hash[target_byte], rotation_amount);
                         } else {
-                            sha3_hash[20] = rotate_right(sha3_hash[20], rotation_amount);
+                            sha3_hash[target_byte] = rotate_right(sha3_hash[target_byte], rotation_amount);
                         }
 
-                        uint8_t shift_amount = (sha3_hash[5] % 8) + 2;
-                        sha3_hash[20] ^= rotate_left(sha3_hash[20], shift_amount);
+                        uint8_t shift_amount = (sha3_hash[3] + sha3_hash[5]) % 5 + 2; 
+                        sha3_hash[target_byte] ^= rotate_left(sha3_hash[target_byte], shift_amount);
                     }
-                }
-                else if (sha3_hash[2] % 6 == 0) { 
-                    uint8_t repeat = (sha3_hash[6] % 4) + 1; 
-                    for (uint8_t j = 0; j < repeat; ++j) {
-                        sha3_hash[10] ^= 0xFF;
-
-                        uint8_t rotation_byte = sha3_hash[i % 32]; 
-                        uint8_t rotation_amount = (rotation_byte % 3) + 1;
-
-                        if (rotation_byte % 2 == 0) {
-                            sha3_hash[10] = rotate_left(sha3_hash[10], rotation_amount);
-                        } else {
-                            sha3_hash[10] = rotate_right(sha3_hash[10], rotation_amount);
-                        }
-
-                        uint8_t shift_amount = (sha3_hash[7] % 5) + 3;
-                        sha3_hash[10] ^= rotate_left(sha3_hash[10], shift_amount);
-                    }
-                } 
-                else if (sha3_hash[7] % 5 == 0) {
+                } else if (sha3_hash[7] % 5 == 0) {
                     uint8_t repeat = (sha3_hash[8] % 4) + 1;
                     for (uint8_t j = 0; j < repeat; ++j) {
-                        sha3_hash[25] ^= 0x66; 
-
-                        uint8_t rotation_byte = sha3_hash[i % 32];
-                        uint8_t rotation_amount = (rotation_byte % 3) + 2;
-
-                        if (rotation_byte % 2 == 0) {
-                            sha3_hash[25] = rotate_left(sha3_hash[25], rotation_amount);
-                        } else {
-                            sha3_hash[25] = rotate_right(sha3_hash[25], rotation_amount);
-                        }
-
-                        uint8_t shift_amount = (sha3_hash[10] % 6) + 4;
-                        sha3_hash[25] ^= rotate_left(sha3_hash[25], shift_amount);
-                    }
-                } 
-                else if (sha3_hash[8] % 7 == 0) { 
-                    uint8_t repeat = (sha3_hash[9] % 5) + 1; 
-                    for (uint8_t j = 0; j < repeat; ++j) {
-                        sha3_hash[30] ^= 0x77;
+                        uint8_t target_byte = ((sha3_hash[25] + i) % 32); 
+                        uint8_t xor_value = sha3_hash[i % 16] ^ 0x66;
+                        sha3_hash[target_byte] ^= xor_value;
 
                         uint8_t rotation_byte = sha3_hash[i % 32]; 
-                        uint8_t rotation_amount = (rotation_byte % 4) + 1;
-
+                        uint8_t rotation_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 2;
                         if (rotation_byte % 2 == 0) {
-                            sha3_hash[30] = rotate_left(sha3_hash[30], rotation_amount);
+                            sha3_hash[target_byte] = rotate_left(sha3_hash[target_byte], rotation_amount);
                         } else {
-                            sha3_hash[30] = rotate_right(sha3_hash[30], rotation_amount);
+                            sha3_hash[target_byte] = rotate_right(sha3_hash[target_byte], rotation_amount);
                         }
 
-                        uint8_t shift_amount = (sha3_hash[11] % 7) + 2;
-                        sha3_hash[30] ^= rotate_left(sha3_hash[30], shift_amount);
+                        uint8_t shift_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 1; 
+                        sha3_hash[target_byte] ^= rotate_left(sha3_hash[target_byte], shift_amount);
+                    }
+                } else if (sha3_hash[8] % 7 == 0) {
+                    uint8_t repeat = (sha3_hash[9] % 5) + 1;
+                    for (uint8_t j = 0; j < repeat; ++j) {
+                        uint8_t target_byte = ((sha3_hash[30] + i) % 32); 
+                        uint8_t xor_value = sha3_hash[i % 16] ^ 0x77; 
+                        sha3_hash[target_byte] ^= xor_value;
+
+                        uint8_t rotation_byte = sha3_hash[i % 32];  
+                        uint8_t rotation_amount = (sha3_hash[2] + sha3_hash[5]) % 5 + 1;
+                        if (rotation_byte % 2 == 0) {
+                            sha3_hash[target_byte] = rotate_left(sha3_hash[target_byte], rotation_amount);
+                        } else {
+                            sha3_hash[target_byte] = rotate_right(sha3_hash[target_byte], rotation_amount);
+                        }
+
+                        uint8_t shift_amount = (sha3_hash[7] + sha3_hash[9]) % 6 + 2; 
+                        sha3_hash[target_byte] ^= rotate_left(sha3_hash[target_byte], shift_amount);
                     }
                 }
             }
@@ -231,7 +302,17 @@ extern "C" {
                 product[i] ^= sha3_hash[i];
             }
 
-             // ### Memory Hard
+            // ** Octonion**
+            i64 octonion_result[8];
+            octonion_hash(product, octonion_result);
+            
+            for (int i = 0; i < 32; i++) {
+                i64 oct_value = octonion_result[i / 8];
+            
+                u8 oct_value_u8 = (u8)((oct_value >> (8 * (i % 8))) & 0xFF);
+            
+                product[i] ^= oct_value_u8;
+            }
 
             // **Non-Linear S-Box**
             #pragma unroll
@@ -258,90 +339,6 @@ extern "C" {
             #pragma unroll
             for (int i = 0; i < 32; i++) {
                 product[i] ^= sbox[product[i]];
-            }
-
-            #pragma unroll
-            for (int i = 0; i < 32; i++) {
-                uint8_t cryptix_nonce = product[i];
-                uint8_t condition = ((product[i] ^ sha3_hash[i % 32]) ^ cryptix_nonce) % 9;
-            
-                uint8_t p = product[i];
-            
-                if (condition == 0) {
-                    p = (p + 13) % 256;
-                    p = rotate_left(p, 3);
-                    if (p > 100) {
-                        p += 0x20;
-                    } else {
-                        p -= 0x10;
-                    }
-                } else if (condition == 1) {
-                    p = (p - 7) % 256;
-                    p = rotate_left(p, 5);
-                    if (p % 2 == 0) {
-                        p += 0x11;
-                    } else {
-                        p -= 0x05;
-                    }
-                } else if (condition == 2) {
-                    p ^= 0x5A;
-                    p = (p + 0xAC) % 256;
-                    if (p > 0x50) {
-                        p = (p * 2) % 256;
-                    } else {
-                        p = (p / 3) % 256;
-                    }
-                } else if (condition == 3) {
-                    p = (p * 17) % 256;
-                    p ^= 0xAA;
-                    if (p % 4 == 0) {
-                        p = rotate_left(p, 4);
-                    } else {
-                        p = rotate_right(p, 2);
-                    }
-                } else if (condition == 4) {
-                    p = (p - 29) % 256;
-                    p = rotate_left(p, 1);
-                    if (p < 50) {
-                        p += 0x55;
-                    } else {
-                        p -= 0x22;
-                    }
-                } else if (condition == 5) {
-                    p = (p + (0xAA ^ cryptix_nonce)) % 256;
-                    p ^= 0x45;
-                    if ((p & 0x0F) == 0) {
-                        p = rotate_left(p, 6);
-                    } else {
-                        p = rotate_right(p, 3);
-                    }
-                } else if (condition == 6) {
-                    p = (p + 0x33) % 256;
-                    p = rotate_right(p, 4);
-                    if (p < 0x80) {
-                        p -= 0x22;
-                    } else {
-                        p += 0x44;
-                    }
-                } else if (condition == 7) {
-                    p = (p * 3) % 256;
-                    p = rotate_left(p, 2);
-                    if (p > 0x50) {
-                        p += 0x11;
-                    } else {
-                        p -= 0x11;
-                    }
-                } else if (condition == 8) {
-                    p = (p - 0x10) % 256;
-                    p = rotate_right(p, 3);
-                    if (p % 3 == 0) {
-                        p += 0x55;
-                    } else {
-                        p -= 0x33;
-                    }
-                }
-            
-                product[i] = p;
             }
 
             memset(input, 0, 80);
