@@ -99,61 +99,6 @@ impl Matrix {
         rank
     }
 
-    /* 
-    // ### Cryptixhash v3
-
-    // generate_non_linear_sbox method
-    pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
-        let mut result = input;
-
-        // Calculate the inverse in GF(2^8)
-        result = Self::gf_invert(result);
-
-        // Affine transformation (left rotation, XOR with constant 0x63)
-        result = Self::affine_transform(result);
-
-        // XOR with the key for additional diffusion
-        result ^= key;
-
-        result
-    }
-
-    // Inverse calculation and affine transformation
-    fn gf_invert(value: u8) -> u8 {
-        if value == 0 {
-            return 0; // The inverse of 0 is 0
-        }
-
-        let mut t = 0u8;
-        let r: u16 = 0x11b; // The irreducible polynomial as u16
-        let mut v = value;
-        let mut u: u16 = 1; // 1 in GF(2^8)
-
-        // Extended Euclidean algorithm
-        for _ in 0..8 {
-            if v & 1 == 1 {
-                t ^= u as u8; // Cast the result as u8
-            }
-
-            v >>= 1;
-            u = (u << 1) ^ (if v & 0x80 != 0 { r } else { 0 });
-
-            if u & 0x100 != 0 {
-                u ^= 0x11b; // XOR with irreducible polynomial
-            }
-        }
-
-        t
-    }
-
-    // Affine Transformation (left rotation + XOR with constant 0x63)
-    fn affine_transform(value: u8) -> u8 {
-        let mut result = value;
-        result = result.rotate_left(4) ^ result; // Left rotation + XOR with itself (for diffusion)
-        result ^= 0x63; // XOR with a constant (similar to AES)
-        result
-    }*/
-
     // Octionion Multiply
     fn octonion_multiply(a: &[i64; 8], b: &[i64; 8]) -> [i64; 8] {
         let mut result = [0; 8];
@@ -304,18 +249,6 @@ impl Matrix {
     
         // Return the resulting octonion after applying all rotations
         oct
-    }    
-
-    // Non-linear S-box generation
-    pub fn generate_non_linear_sbox(input: u8, key: u8) -> u8 {
-        let mut result = input;
-
-        // Combination of multiplication and bitwise permutation
-        result = result.wrapping_mul(key);          // Multiply by the key
-        result = (result >> 3) | (result << 5);    // Bitwise permutation (Rotation)
-        result ^= 0x5A;                             // XOR with 0x5A
-
-        result
     }
 
     pub fn cryptix_hash(&self, hash: Hash) -> Hash {
@@ -333,27 +266,41 @@ impl Matrix {
             arr
         };
     
+        // Matrix and vector multiplication
         let mut product = [0u8; 32];
-    
+        let mut nibble_product = [0u8; 32];
+
         for i in 0..32 {
-            let mut sum1 = 0u16;
-            let mut sum2 = 0u16;
+            let mut sum1: u16 = 0;
+            let mut sum2: u16 = 0;
+            let mut sum3: u16 = 0;
+            let mut sum4: u16 = 0;
+    
             for j in 0..64 {
                 let elem = nibbles[j] as u16;
-                sum1 += self.0[2 * i][j] * elem;   // Matrix multiplication
+                sum1 += self.0[2 * i][j] * elem;
                 sum2 += self.0[2 * i + 1][j] * elem;
+                sum3 += self.0[1 * i + 2][j] * elem;
+                sum4 += self.0[1 * i + 3][j] * elem; 
             }
-            
-            // Combine the nibbles back into bytes
-            let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF); // Combine the bits
-            let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
     
-            product[i] = ((a_nibble << 4) | b_nibble) as u8; // Combine to form final byte
+            // Combine the nibbles back into bytes
+            let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum3 >> 8) & 0xF);
+            let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum4 >> 8) & 0xF);
+
+            // Calculate c_nibble and d_nibble
+            let c_nibble = (sum3 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
+            let d_nibble = (sum1 & 0xF) ^ ((sum4 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF);
+
+            // Combine c_nibble and d_nibble to form nibble_product
+            nibble_product[i] = ((c_nibble << 4) | d_nibble) as u8; 
+            product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
 
         // XOR the product with the original hash   
         product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h); // Apply XOR with the hash
         
+        let product_before_oct = product.clone();
 
         // ** Octonion Function **
         let octonion_result = Self::octonion_hash(&product); // Compute the octonion hash of the product
@@ -368,15 +315,62 @@ impl Matrix {
             // XOR the values and store the result in the product
             product[i] ^= oct_value_u8;
         }
-                
+
         // **Apply nonlinear S-Box**
         let mut sbox: [u8; 256] = [0; 256];
 
-        // Fill the S-box using the bytes of the hash
         for i in 0..256 {
-            sbox[i] = hash_bytes[i % hash_bytes.len()]; // Wrap around the hash bytes
+            let i = i as u8;
+        
+            let (source_array, rotate_left_val, rotate_right_val) = 
+                if i < 16 { (&product, nibble_product[3] ^ 0x4F, hash_bytes[2] ^ 0xD3) }
+                else if i < 32 { (&hash_bytes, product[7] ^ 0xA6, nibble_product[5] ^ 0x5B) }
+                else if i < 48 { (&nibble_product, product_before_oct[1] ^ 0x9C, product[0] ^ 0x8E) }
+                else if i < 64 { (&hash_bytes, product[6] ^ 0x71, product_before_oct[3] ^ 0x2F) }
+                else if i < 80 { (&product_before_oct, nibble_product[4] ^ 0xB2, hash_bytes[7] ^ 0x6D) }
+                else if i < 96 { (&hash_bytes, product[0] ^ 0x58, nibble_product[1] ^ 0xEE) }
+                else if i < 112 { (&product, product_before_oct[2] ^ 0x37, hash_bytes[6] ^ 0x44) }
+                else if i < 128 { (&hash_bytes, product[5] ^ 0x1A, hash_bytes[4] ^ 0x7C) }
+                else if i < 144 { (&product_before_oct, nibble_product[3] ^ 0x93, product[2] ^ 0xAF) }
+                else if i < 160 { (&hash_bytes, product[7] ^ 0x29, nibble_product[5] ^ 0xDC) }
+                else if i < 176 { (&nibble_product, product_before_oct[1] ^ 0x4E, hash_bytes[0] ^ 0x8B) }
+                else if i < 192 { (&hash_bytes, nibble_product[6] ^ 0xF3, product_before_oct[3] ^ 0x62) }
+                else if i < 208 { (&product_before_oct, product[4] ^ 0xB7, product[7] ^ 0x15) }
+                else if i < 224 { (&hash_bytes, product[0] ^ 0x2D, product_before_oct[1] ^ 0xC8) }
+                else if i < 240 { (&product, product_before_oct[2] ^ 0x6F, nibble_product[6] ^ 0x99) }
+                else { (&hash_bytes, nibble_product[5] ^ 0xE1, hash_bytes[4] ^ 0x3B) };
+        
+            let value = 
+                if i < 16 { product[i as usize % 32] ^ 0xAA }
+                else if i < 32 { hash_bytes[(i - 16) as usize % 32] ^ 0xBB }
+                else if i < 48 { product_before_oct[(i - 32) as usize % 32] ^ 0xCC }
+                else if i < 64 { nibble_product[(i - 48) as usize % 32] ^ 0xDD }
+                else if i < 80 { product[(i - 64) as usize % 32] ^ 0xEE }
+                else if i < 96 { hash_bytes[(i - 80) as usize % 32] ^ 0xFF }
+                else if i < 112 { product_before_oct[(i - 96) as usize % 32] ^ 0x11 }
+                else if i < 128 { nibble_product[(i - 112) as usize % 32] ^ 0x22 }
+                else if i < 144 { product[(i - 128) as usize % 32] ^ 0x33 }
+                else if i < 160 { hash_bytes[(i - 144) as usize % 32] ^ 0x44 }
+                else if i < 176 { product_before_oct[(i - 160) as usize % 32] ^ 0x55 }
+                else if i < 192 { nibble_product[(i - 176) as usize % 32] ^ 0x66 }
+                else if i < 208 { product[(i - 192) as usize % 32] ^ 0x77 }
+                else if i < 224 { hash_bytes[(i - 208) as usize % 32] ^ 0x88 }
+                else if i < 240 { product_before_oct[(i - 224) as usize % 32] ^ 0x99 }
+                else { nibble_product[(i - 240) as usize % 32] ^ 0xAA };
+        
+            let rotate_left_shift = (product[(i as usize + 1) % product.len()] as u32 + i as u32) % 8;
+            let rotate_right_shift = (hash_bytes[(i as usize + 2) % hash_bytes.len()] as u32 + i as u32) % 8;
+        
+            let rotation_left = rotate_left_val.rotate_left(rotate_left_shift);
+            let rotation_right = rotate_right_val.rotate_right(rotate_right_shift);
+        
+            let index = (i as usize + rotation_left as usize + rotation_right as usize) % source_array.len();
+            sbox[i as usize] = source_array[index] ^ value;
         }
+        
 
+
+        /* 
         // Number of iterations depends on the first byte of the product
         let iterations = 3 + (product[0] % 4);  // Modulo 4 gives values ​​from 0 to 3 → +3 gives 3 to 6
 
@@ -386,9 +380,6 @@ impl Matrix {
             for i in 0..256 { 
                 let mut value = temp_sbox[i];  
                 
-                // Generate nonlinear value based on Hash + Product
-                value = Self::generate_non_linear_sbox(value, hash_bytes[i % hash_bytes.len()] ^ product[i % product.len()]); 
-                
                 // Bitwise rotation + XOR
                 value ^= value.rotate_left(4) | value.rotate_right(2); 
                 temp_sbox[i] = value; 
@@ -396,10 +387,12 @@ impl Matrix {
 
             sbox = temp_sbox; // Update the S-Box after the round
         }
+        */
 
-        // Apply the final S-Box transformation to the product with XOR
+
+        // Apply S-Box to the product with XOR
         for i in 0..32 {
-            product[i] ^= sbox[product[i] as usize]; // XOR product with S-Box values
+            product[i] ^= sbox[product[i] as usize]; 
         }
 
         // Final Cryptixhash v2
@@ -595,45 +588,3 @@ mod tests {
         assert_eq!(matrix, expected_matrix);
     }
 }
-
-        /*
-        // ### Cryptixhash v3
-
-        // Memory Hard Function - Inline Code
-        let mut memory_table: [u8; 16 * 1024] = [0; 16 * 1024]; // 16 KB
-        let nonce = hash.as_bytes(); 
-        
-        // **Fill the memory with the nonce**
-        for i in 0..memory_table.len() {
-            memory_table[i] = nonce[i % nonce.len()];  
-        }
-        
-        let mut index: usize = 0;
-        
-        // Repeat the calculations and manipulations in memory
-        for i in 0..32 {
-            let mut sum = 0u16;
-        
-             // Memory on product
-            for j in 0..32 {
-                sum += product[j] as u16 * self.0[2 * i][j % self.0[2 * i].len()] as u16;
-            }
-        
-            // **non-linear memory accesses**
-            for _ in 0..12 { 
-                index ^= (memory_table[(index * 7 + i) % memory_table.len()] as usize * 19) ^ ((i * 53) % 13);
-                index = (index * 73 + i * 41) % memory_table.len(); 
-                
-                // Index-Path
-                let shifted = (index.wrapping_add(i * 13)) % memory_table.len();
-                memory_table[shifted] ^= (sum & 0xFF) as u8;
-            }
-        }
-        
-        // Final hash result in memory
-        for i in 0..32 {
-            let shift_val = (product[i] as usize * 47 + i) % memory_table.len();
-            product[i] ^= memory_table[shift_val];
-        } 
-
-        */
