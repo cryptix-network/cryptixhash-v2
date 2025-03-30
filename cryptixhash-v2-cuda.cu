@@ -399,27 +399,57 @@ extern "C" {
                 sbox[i] = source_array[index] ^ value;
             }
             
+            // Update Sbox Values
+            int iterations = 1 + (product[0] % 3);
 
-            /*
-            // Calculate dynamic number of iterations
-            int iterations = 3 + (product[0] % 4);  // 3 - 6
-
+            uint8_t temp_sbox[256];
+            
             for (int iter = 0; iter < iterations; iter++) {
-                uint8_t temp_sbox[256];
+                memcpy(temp_sbox, sbox, 256);
+
                 for (int i = 0; i < 256; i++) {
-                    uint8_t value = sbox[i];
-                    value ^= rotate_left(value, 4) | rotate_right(value, 2);
+                    uint8_t value = temp_sbox[i];
+
+                    uint8_t rotate_left_shift = (product[(i + 1) % 32] + i + (i * 3)) % 8;
+                    uint8_t rotate_right_shift = (sha3_hash[(i + 2) % 32] + i + (i * 5)) % 8;
+
+                    uint8_t rotated_value = rotate_left(value, rotate_left_shift) | rotate_right(value, rotate_right_shift);
+
+                    uint8_t base_value = static_cast<uint8_t>((i + (product[(i * 3) % 32] ^ sha3_hash[(i * 7) % 32])) & 0xFF) ^ 0xA5;
+                    uint8_t shifted_value = rotate_left(base_value, static_cast<uint32_t>(i % 8));
+                    uint8_t xor_value = shifted_value ^ 0x55;
+
+                    value ^= rotated_value ^ xor_value;
+
                     temp_sbox[i] = value;
                 }
+
                 memcpy(sbox, temp_sbox, 256);
             }
-            */
 
             // **Apply S-Box**
             #pragma unroll
             for (int i = 0; i < 32; i++) {
-                product[i] ^= sbox[product[i]];
+                int array_selector = (i * 31) % 4;
+                const uint8_t* ref_array;
+
+                switch (array_selector) {
+                    case 0: ref_array = nibble_product; break;
+                    case 1: ref_array = sha3_hash; break;
+                    case 2: ref_array = product; break;
+                    default: ref_array = product_before_oct; break;
+                }
+
+                int byte_val = ref_array[(i * 13) % 32];  
+
+                int index = (byte_val 
+                            + product[(i * 31) % 32] 
+                            + sha3_hash[(i * 19) % 32] 
+                            + i * 41) % 256;  
+
+                product[i] ^= sbox[index];
             }
+
 
             memset(input, 0, 80);
             memcpy(input, product, 32);

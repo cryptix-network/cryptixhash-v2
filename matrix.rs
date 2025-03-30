@@ -284,16 +284,18 @@ impl Matrix {
                 sum4 += self.0[1 * i + 3][j] * elem; 
             }
     
-            // Combine the nibbles back into bytes
+            // Calculate a_nibble and b_nibble for product
             let a_nibble = (sum1 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum3 >> 8) & 0xF);
             let b_nibble = (sum2 & 0xF) ^ ((sum1 >> 4) & 0xF) ^ ((sum4 >> 8) & 0xF);
 
-            // Calculate c_nibble and d_nibble
+            // Calculate c_nibble and d_nibble for nibble product
             let c_nibble = (sum3 & 0xF) ^ ((sum2 >> 4) & 0xF) ^ ((sum2 >> 8) & 0xF);
             let d_nibble = (sum1 & 0xF) ^ ((sum4 >> 4) & 0xF) ^ ((sum1 >> 8) & 0xF);
 
             // Combine c_nibble and d_nibble to form nibble_product
             nibble_product[i] = ((c_nibble << 4) | d_nibble) as u8; 
+
+            // Combine a_nibble and b_nibble to form product
             product[i] = ((a_nibble << 4) | b_nibble) as u8;
         }
 
@@ -368,31 +370,50 @@ impl Matrix {
             sbox[i as usize] = source_array[index] ^ value;
         }
         
+        // Update Sbox Values
+        let iterations = 1 + (product[0] % 3);  
 
-
-        /* 
-        // Number of iterations depends on the first byte of the product
-        let iterations = 3 + (product[0] % 4);  // Modulo 4 gives values ​​from 0 to 3 → +3 gives 3 to 6
-
-        for _ in 0..iterations {  
+        for _ in 0..iterations {
             let mut temp_sbox = sbox;
-            
-            for i in 0..256 { 
-                let mut value = temp_sbox[i];  
-                
-                // Bitwise rotation + XOR
-                value ^= value.rotate_left(4) | value.rotate_right(2); 
+
+            for i in 0..256 {
+                let mut value = temp_sbox[i];
+
+                let rotate_left_shift = (product[(i + 1) % product.len()] as u32 + i as u32 + (i * 3) as u32) % 8;  
+                let rotate_right_shift = (hash_bytes[(i + 2) % hash_bytes.len()] as u32 + i as u32 + (i * 5) as u32) % 8; 
+
+                let rotated_value = value.rotate_left(rotate_left_shift) | value.rotate_right(rotate_right_shift);
+
+                let xor_value = {
+                    let base_value = (i as u8).wrapping_add(product[(i * 3) % product.len()] ^ hash_bytes[(i * 7) % hash_bytes.len()]) ^ 0xA5;
+                    let shifted_value = base_value.rotate_left((i % 8) as u32); 
+                    shifted_value ^ 0x55 
+                };
+
+                value ^= rotated_value ^ xor_value;
                 temp_sbox[i] = value; 
             }
 
-            sbox = temp_sbox; // Update the S-Box after the round
+            sbox = temp_sbox;
         }
-        */
-
 
         // Apply S-Box to the product with XOR
         for i in 0..32 {
-            product[i] ^= sbox[product[i] as usize]; 
+            let ref_array = match (i * 31) % 4 { 
+                0 => &nibble_product,
+                1 => &hash_bytes,
+                2 => &product,
+                _ => &product_before_oct,
+            };
+
+            let byte_val = ref_array[(i * 13) % ref_array.len()] as usize;
+
+            let index = (byte_val 
+                        + product[(i * 31) % product.len()] as usize 
+                        + hash_bytes[(i * 19) % hash_bytes.len()] as usize 
+                        + i * 41) % 256;  
+
+            product[i] ^= sbox[index]; 
         }
 
         // Final Cryptixhash v2
