@@ -3,6 +3,7 @@
 #include "keccak-tiny.c"
 #include "xoshiro256starstar.c"
 #include "sha3.c"
+#include "blake3_compact.h"
 
 typedef uint8_t u8; 
 typedef uint64_t u64; 
@@ -170,12 +171,10 @@ extern "C" {
             memcpy(input + HASH_HEADER_SIZE, (uint8_t *)(&nonce), 8);
             hash(powP, hash_.hash, input);
 
-            // Sha3 - The first byte modulo 2, plus 1 for the range [1 - 3]
+            // Sha3 - The first byte modulo 3, plus 1 for the range [1 - 2]
             uint8_t first_byte = hash_.hash[0]; 
-            uint8_t iteration_count = (uint8_t)((first_byte % 3) + 1); 
+            uint8_t iteration_count = (uint8_t)((first_byte % 2) + 1); 
             
-
-            #pragma unroll
             for (int i = 0; i < 32; i++) {
                 sha3_hash[i] = hash_.hash[i];
             }
@@ -287,6 +286,7 @@ extern "C" {
 
             // **Matrix Transformation**
             uchar4 packed_hash[QUARTER_MATRIX_SIZE];
+
             #pragma unroll
             for (int i = 0; i < QUARTER_MATRIX_SIZE; i++) {
                 uint8_t h1 = sha3_hash[2 * i], h2 = sha3_hash[2 * i + 1];
@@ -331,7 +331,8 @@ extern "C" {
             // ** Octonion**
             i64 octonion_result[8];
             octonion_hash(product, octonion_result);
-            
+
+            #pragma unroll
             for (int i = 0; i < 32; i++) {
                 i64 oct_value = octonion_result[i / 8];
             
@@ -341,7 +342,6 @@ extern "C" {
             }
 
             // **Non-Linear S-Box**
-            #pragma unroll
             uint8_t sbox[256];
 
             for (int i = 0; i < 256; i++) {
@@ -400,10 +400,12 @@ extern "C" {
             }
             
             // Update Sbox Values
-            int iterations = 1 + (product[0] % 3);
+            size_t index = ((size_t)product_before_oct[2] % 8) + 1;  
+            int iterations = 1 + (product[index] % 2);            
 
             uint8_t temp_sbox[256];
-            
+
+            #pragma unroll
             for (int iter = 0; iter < iterations; iter++) {
                 memcpy(temp_sbox, sbox, 256);
 
@@ -427,6 +429,14 @@ extern "C" {
                 memcpy(sbox, temp_sbox, 256);
             }
 
+            // Blake 3 
+            blake3_hasher b3_hasher;
+            blake3_hasher_init(&b3_hasher);
+            blake3_hasher_update(&b3_hasher, product, 32); 
+
+            uint8_t product_blake3[32];
+            blake3_hasher_finalize(&b3_hasher, product_blake3, 32);
+
             // **Apply S-Box**
             #pragma unroll
             for (int i = 0; i < 32; i++) {
@@ -447,12 +457,11 @@ extern "C" {
                             + sha3_hash[(i * 19) % 32] 
                             + i * 41) % 256;  
 
-                product[i] ^= sbox[index];
+                product_blake3[i] ^= sbox[index];
             }
 
-
             memset(input, 0, 80);
-            memcpy(input, product, 32);
+            memcpy(input, product_blake3, 32);
             hash(heavyP, hash_.hash, input);
 
             if (LT_U256(hash_, target)) {
