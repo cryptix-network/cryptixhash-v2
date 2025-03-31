@@ -1,49 +1,12 @@
 ## TODO
 
-    // TODO:
-    // Better filling of the cache - Scattering is not sufficient
-    // Better filling of the Memory hard function - Scattering is not sufficient
-    // Performance optimization of illiterations.
-    // Correct values ​​for the cache & memory
+Walk the dog
 
-    // IDEA:
-    // Consider bottlenecking the LUTS with 64-bit values, which would overload at least 1,000,000 LUTs. But this needs to be considered first. The current LUT usage must also be calculated with Vivado Studio.
+Clean up the apartment
 
+Maybe shave
 
-## Progress
-
-- fn calculate_pow / lib.rs:
- 
-Planning ✅
-
-Coding ✅
-
-Integration ✅
-
-Testing ✅
-
-Hardware Mining Tests ✅
-
-
-- fn heavy_hash / matrix.rs:
- 
-Planning ✅
-
-Coding ✅
-
-Integration ✅
-
-Testing ✅
-
-Hardware Mining Tests ✅
-
-
-
-- Total Hash:
-
-Balancing and performance optimization 🔄
-CPU Tests 🔄 
-GPU Tests 🔄
+Go shopping (1 carton of eggs, 2 liters of milk, salt, 1 FPGA)
 
 
 
