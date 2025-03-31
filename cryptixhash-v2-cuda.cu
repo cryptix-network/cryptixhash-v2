@@ -303,22 +303,41 @@ extern "C" {
                 amul4bit((uint32_t *)(matrix[(2 * rowId + 1)]), (uint32_t *)(packed_hash), &product2);
                 amul4bit((uint32_t *)(matrix[(1 * rowId + 2)]), (uint32_t *)(packed_hash), &product3);
                 amul4bit((uint32_t *)(matrix[(1 * rowId + 3)]), (uint32_t *)(packed_hash), &product4);
-                
-                // Calculate a_nibble and b_nibble for product
-                uint8_t a_nibble = (product1 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product3 >> 8) & 0xF);
-                uint8_t b_nibble = (product2 & 0xF) ^ ((product1 >> 4) & 0xF) ^ ((product4 >> 8) & 0xF);
+
+                // Nibbles
+                // A
+                uint32_t a_nibble = (product1 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product3 >> 8) & 0xF) 
+                                    ^ ((wrapping_mul(product1, 0xABCD) >> 12) & 0xF) 
+                                    ^ ((wrapping_mul(product1, 0x1234) >> 8) & 0xF)
+                                    ^ ((wrapping_mul(product2, 0x5678) >> 16) & 0xF)
+                                    ^ ((wrapping_mul(product3, 0x9ABC) >> 4) & 0xF);
+
+                // B
+                uint32_t b_nibble = (product2 & 0xF) ^ ((product1 >> 4) & 0xF) ^ ((product4 >> 8) & 0xF) 
+                                    ^ ((wrapping_mul(product2, 0xDCBA) >> 14) & 0xF)
+                                    ^ ((wrapping_mul(product2, 0x8765) >> 10) & 0xF) 
+                                    ^ ((wrapping_mul(product1, 0x4321) >> 6) & 0xF);
+
+                // C
+                uint32_t c_nibble = (product3 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product2 >> 8) & 0xF) 
+                                    ^ ((wrapping_mul(product3, 0xF135) >> 10) & 0xF)
+                                    ^ ((wrapping_mul(product3, 0x2468) >> 12) & 0xF) 
+                                    ^ ((wrapping_mul(product4, 0xACEF) >> 8) & 0xF)
+                                    ^ ((wrapping_mul(product2, 0x1357) >> 4) & 0xF);
+
+                // D
+                uint32_t d_nibble = (product1 & 0xF) ^ ((product4 >> 4) & 0xF) ^ ((product1 >> 8) & 0xF)
+                                    ^ ((wrapping_mul(product4, 0x57A3) >> 6) & 0xF)
+                                    ^ ((wrapping_mul(product3, 0xD4E3) >> 12) & 0xF)
+                                    ^ ((wrapping_mul(product1, 0x9F8B) >> 10) & 0xF);
             
                 // Store in product array
-                product[rowId] = ((a_nibble << 4) | b_nibble);
-            
-                // Calculate c_nibble and d_nibble for nibble_product
-                uint8_t c_nibble = (product3 & 0xF) ^ ((product2 >> 4) & 0xF) ^ ((product2 >> 8) & 0xF);
-                uint8_t d_nibble = (product1 & 0xF) ^ ((product4 >> 4) & 0xF) ^ ((product1 >> 8) & 0xF);
-            
+                product[rowId] = static_cast<u8>((a_nibble << 4) | b_nibble);
+       
                 // Store in nibble_product array
-                nibble_product[rowId] = ((c_nibble << 4) | d_nibble);
+                nibble_product[rowId] = static_cast<u8>((c_nibble << 4) | d_nibble);
             }
-
+            
             uint8_t product_before_oct[32]; 
 
             // XOR the product with the original hash   
