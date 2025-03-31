@@ -448,13 +448,25 @@ extern "C" {
                 memcpy(sbox, temp_sbox, 256);
             }
 
-            // Blake 3 
-            blake3_hasher b3_hasher;
-            blake3_hasher_init(&b3_hasher);
-            blake3_hasher_update(&b3_hasher, product, 32); 
+            // Blake3 Chaining
+            size_t index_blake = ((size_t)product_before_oct[5] % 8) + 1;  
+            int iterations_blake = 1 + (product[index_blake] % 3);            
 
-            uint8_t product_blake3[32];
-            blake3_hasher_finalize(&b3_hasher, product_blake3, 32);
+            uint8_t product_blake3[32];  
+            memcpy(product_blake3, product, 32); 
+
+            #pragma unroll
+            for (int iter = 0; iter < iterations_blake; iter++) {
+                blake3_hasher b3_hasher;
+                blake3_hasher_init(&b3_hasher);
+                
+                blake3_hasher_update(&b3_hasher, product_blake3, 32); 
+
+                uint8_t temp_blake3[32];  
+                blake3_hasher_finalize(&b3_hasher, temp_blake3, 32);
+                
+                memcpy(product_blake3, temp_blake3, 32);  
+            }
 
             // **Apply S-Box**
             #pragma unroll
