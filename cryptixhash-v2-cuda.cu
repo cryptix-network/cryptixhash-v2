@@ -494,6 +494,11 @@ extern "C" {
                 memcpy(product_blake3, temp_blake3, 32);  
             }
 
+            // Sinus (Testnet)          
+            // uint8_t sinus_in[32];  
+            // uint8_t sinus_out[32];
+            // sinusoidal_multiply(sinus_in, sinus_out);
+
             // **Apply S-Box**
             #pragma unroll
             for (int i = 0; i < 32; i++) {
@@ -515,6 +520,7 @@ extern "C" {
                             + i * 41) % 256;  
 
                 product_blake3[i] ^= sbox[index];
+                // product_blake3[i] ^= sbox[index] ^ sinus_out;
             }
 
             memset(input, 0, 80);
