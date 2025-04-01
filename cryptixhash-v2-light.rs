@@ -129,7 +129,9 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
-// Sinusoidal (It needs to be tested in the testnet first due to arch rounding errors)
+/*
+// ***Sinusoidal*** 
+// It needs to be tested in the testnet first due to arch rounding errors)
 fn sinusoidal_multiply(sinus_in: u8) -> u8 {
     let mut left = (sinus_in >> 4) & 0x0F; 
     let mut right = sinus_in & 0x0F;  
@@ -155,6 +157,88 @@ fn sinusoidal_multiply(sinus_in: u8) -> u8 {
 
     sinus_out
 }
+*/
+
+// ***Complex Lookup Table***
+// - Pseudo-random generator: Utilizes XOR, shifts, and multiplications to create unpredictable behavior, making parallelization difficult.
+// - Prime factorization: Computationally expensive and resistant to FPGA acceleration due to its sequential nature.
+// - Serial dependency: Ensures that each computation depends on the previous result, preventing pipeline optimizations.
+// - Dynamic recursion depth: Introduces non-deterministic execution paths, complicating FPGA execution strategies.
+
+/*
+fn chaotic_random(mut x: u32) -> u32 {
+    for _ in 0..5 {
+        x = x.wrapping_mul(3646246005).rotate_left(13) ^ 0xA5A5A5A5;
+    }
+    x
+}
+
+fn prime_factors(mut n: u32) -> Vec<u32> {
+    let mut factors = Vec::new();
+    let mut i = 2;
+    while i * i <= n {
+        while n % i == 0 {
+            factors.push(i);
+            n /= i;
+        }
+        i += 1;
+    }
+    if n > 1 {
+        factors.push(n);
+    }
+    factors
+}
+
+fn serial_dependency(mut x: u32, rounds: u8) -> u32 {
+    for _ in 0..rounds {
+        x = x.wrapping_mul(3).wrapping_add(5).rotate_left(7);
+        x ^= Self::chaotic_random(x);
+    }
+    x
+}
+
+fn unpredictable_depth(x: u32) -> u8 {
+    let noise = Self::chaotic_random(x) & 0xF;
+    10 + (noise as u8)  
+}
+
+fn recursive_multiplication_with_randomness(dynlut_input: u8) -> u8 {
+    let depth = Self::unpredictable_depth(dynlut_input as u32);
+    Self::serial_dependency(dynlut_input as u32, depth) as u8
+}
+
+fn recursive_multiplication_with_factors(dynlut_input: u8, depth: u8) -> u8 {
+    let dynlut_input = dynlut_input as u32;
+    let mut result = dynlut_input;
+
+    for _ in 0..depth {
+        let factors = Self::prime_factors(result);
+        for factor in factors {
+            result = result.wrapping_mul(factor);
+        }
+        result = (result * 3893621) & 0xFFFFFFF;
+    }
+
+    (result & 0xFF) as u8
+}
+
+fn dynamic_depth_multiplication(dynlut_input: u8) -> u8 {
+    Self::recursive_multiplication_with_randomness(dynlut_input)
+}
+
+fn complex_lookup_table(dynlut_input: u8) -> u8 {
+    let dynlut_out = Self::dynamic_depth_multiplication(dynlut_input);
+    dynlut_out
+}
+    */
+
+/*
+let mut lookup_table = [0u8; 64];
+
+for i in 0..64 {
+    lookup_table[i] = Self::complex_lookup_table(i as u8);
+}
+    */    
 
 // **Octonion Multiply Function**  
 // This function multiplies two 8-dimensional octonions, `a` and `b`, and returns the resulting octonion.
@@ -400,6 +484,7 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
 
     // XOR the product with the original hash   
     product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h); // Apply XOR with the hash
+    nibble_product.iter_mut().zip(hash.as_bytes()).for_each(|(p, h)| *p ^= h); 
 
     // Octonion
     //
@@ -439,52 +524,54 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
         let i = i as u8;
 
         // **Source Array and Rotation Values Assignment**  
-        // In this code block, based on the value of `i`, the function selects which array to operate on and also computes the left and right rotation values.  
+        // In this code block, based on the value of `i`, the function selects which array to operate on and computes the left and right rotation values.  
         // The `source_array` is chosen from different byte arrays (`product`, `hash_bytes`, `nibble_product`, `product_before_oct`) depending on the index `i`.  
-        // Each case modifies the rotation values through XOR operations to add more complexity to the transformation.  
+        // Each case modifies the rotation values through XOR operations and multiplication to add more complexity to the transformation.  
         // The rotations (both left and right) are used in later steps for shifting the bits in the respective arrays, further obfuscating the data.  
+        // The multiplication values differ across the conditions, affecting the degree of bit manipulation and helping to generate a more complex, non-linear transformation.  
+        // These operations are applied to specific ranges of `i` (from 0 to 255), ensuring that the algorithm performs different transformations on each index.
 
         let (source_array, rotate_left_val, rotate_right_val) = 
-            if i < 16 { (&product, nibble_product[3] ^ 0x4F, hash_bytes[2] ^ 0xD3) }
-            else if i < 32 { (&hash_bytes, product[7] ^ 0xA6, nibble_product[5] ^ 0x5B) }
-            else if i < 48 { (&nibble_product, product_before_oct[1] ^ 0x9C, product[0] ^ 0x8E) }
-            else if i < 64 { (&hash_bytes, product[6] ^ 0x71, product_before_oct[3] ^ 0x2F) }
-            else if i < 80 { (&product_before_oct, nibble_product[4] ^ 0xB2, hash_bytes[7] ^ 0x6D) }
-            else if i < 96 { (&hash_bytes, product[0] ^ 0x58, nibble_product[1] ^ 0xEE) }
-            else if i < 112 { (&product, product_before_oct[2] ^ 0x37, hash_bytes[6] ^ 0x44) }
-            else if i < 128 { (&hash_bytes, product[5] ^ 0x1A, hash_bytes[4] ^ 0x7C) }
-            else if i < 144 { (&product_before_oct, nibble_product[3] ^ 0x93, product[2] ^ 0xAF) }
-            else if i < 160 { (&hash_bytes, product[7] ^ 0x29, nibble_product[5] ^ 0xDC) }
-            else if i < 176 { (&nibble_product, product_before_oct[1] ^ 0x4E, hash_bytes[0] ^ 0x8B) }
-            else if i < 192 { (&hash_bytes, nibble_product[6] ^ 0xF3, product_before_oct[3] ^ 0x62) }
-            else if i < 208 { (&product_before_oct, product[4] ^ 0xB7, product[7] ^ 0x15) }
-            else if i < 224 { (&hash_bytes, product[0] ^ 0x2D, product_before_oct[1] ^ 0xC8) }
-            else if i < 240 { (&product, product_before_oct[2] ^ 0x6F, nibble_product[6] ^ 0x99) }
-            else { (&hash_bytes, nibble_product[5] ^ 0xE1, hash_bytes[4] ^ 0x3B) };
+        if i < 16 { (&product, (nibble_product[3] ^ 0x4F).wrapping_mul(3) as u8, (hash_bytes[2] ^ 0xD3).wrapping_mul(5) as u8) }
+        else if i < 32 { (&hash_bytes, (product[7] ^ 0xA6).wrapping_mul(2) as u8, (nibble_product[5] ^ 0x5B).wrapping_mul(7) as u8) }
+        else if i < 48 { (&nibble_product, (product_before_oct[1] ^ 0x9C).wrapping_mul(9) as u8, (product[0] ^ 0x8E).wrapping_mul(3) as u8) }
+        else if i < 64 { (&hash_bytes, (product[6] ^ 0x71).wrapping_mul(4) as u8, (product_before_oct[3] ^ 0x2F).wrapping_mul(5) as u8) }
+        else if i < 80 { (&product_before_oct, (nibble_product[4] ^ 0xB2).wrapping_mul(3) as u8, (hash_bytes[7] ^ 0x6D).wrapping_mul(7) as u8) }
+        else if i < 96 { (&hash_bytes, (product[0] ^ 0x58).wrapping_mul(6) as u8, (nibble_product[1] ^ 0xEE).wrapping_mul(9) as u8) }
+        else if i < 112 { (&product, (product_before_oct[2] ^ 0x37).wrapping_mul(2) as u8, (hash_bytes[6] ^ 0x44).wrapping_mul(6) as u8) }
+        else if i < 128 { (&hash_bytes, (product[5] ^ 0x1A).wrapping_mul(5) as u8, (hash_bytes[4] ^ 0x7C).wrapping_mul(8) as u8) }
+        else if i < 144 { (&product_before_oct, (nibble_product[3] ^ 0x93).wrapping_mul(7) as u8, (product[2] ^ 0xAF).wrapping_mul(3) as u8) }
+        else if i < 160 { (&hash_bytes, (product[7] ^ 0x29).wrapping_mul(9) as u8, (nibble_product[5] ^ 0xDC).wrapping_mul(2) as u8) }
+        else if i < 176 { (&nibble_product, (product_before_oct[1] ^ 0x4E).wrapping_mul(4) as u8, (hash_bytes[0] ^ 0x8B).wrapping_mul(3) as u8) }
+        else if i < 192 { (&hash_bytes, (nibble_product[6] ^ 0xF3).wrapping_mul(5) as u8, (product_before_oct[3] ^ 0x62).wrapping_mul(8) as u8) }
+        else if i < 208 { (&product_before_oct, (product[4] ^ 0xB7).wrapping_mul(6) as u8, (product[7] ^ 0x15).wrapping_mul(2) as u8) }
+        else if i < 224 { (&hash_bytes, (product[0] ^ 0x2D).wrapping_mul(8) as u8, (product_before_oct[1] ^ 0xC8).wrapping_mul(7) as u8) }
+        else if i < 240 { (&product, (product_before_oct[2] ^ 0x6F).wrapping_mul(3) as u8, (nibble_product[6] ^ 0x99).wrapping_mul(9) as u8) }
+        else { (&hash_bytes, (nibble_product[5] ^ 0xE1).wrapping_mul(7) as u8, (hash_bytes[4] ^ 0x3B).wrapping_mul(5) as u8) };        
     
         // **Value Assignment Based on Index `i`**  
         // This code assigns a value to the variable `value` based on the index `i`.  
-        // The value is selected from one of the byte arrays (`product`, `hash_bytes`, `product_before_oct`, `nibble_product`) with a corresponding XOR operation for each index range.  
-        // The XOR operation uses different constants (0xAA, 0xBB, etc.) to further introduce complexity in the transformation.  
-        // The use of modular arithmetic (`i % 32`) ensures that the index wraps around and accesses values in a cyclic manner within the respective byte array.  
+        // The value is selected from one of the byte arrays (`product`, `hash_bytes`, `product_before_oct`, `nibble_product`) and is modified using a corresponding XOR operation for each index range.  
+        // The XOR operation uses different constants (0xAA, 0xBB, etc.) to introduce complexity in the transformation.  
+        // Additionally, each value is multiplied by a constant that increases progressively with the index (`0x03`, `0x05`, etc.), adding further complexity to the transformation.  
+        // The use of modular arithmetic (`i % 32`) ensures that the index wraps around and accesses values in a cyclic manner within the respective byte array, allowing for repeated cycles over the arrays.
 
-        let value = 
-            if i < 16 { product[i as usize % 32] ^ 0xAA }
-            else if i < 32 { hash_bytes[(i - 16) as usize % 32] ^ 0xBB }
-            else if i < 48 { product_before_oct[(i - 32) as usize % 32] ^ 0xCC }
-            else if i < 64 { nibble_product[(i - 48) as usize % 32] ^ 0xDD }
-            else if i < 80 { product[(i - 64) as usize % 32] ^ 0xEE }
-            else if i < 96 { hash_bytes[(i - 80) as usize % 32] ^ 0xFF }
-            else if i < 112 { product_before_oct[(i - 96) as usize % 32] ^ 0x11 }
-            else if i < 128 { nibble_product[(i - 112) as usize % 32] ^ 0x22 }
-            else if i < 144 { product[(i - 128) as usize % 32] ^ 0x33 }
-            else if i < 160 { hash_bytes[(i - 144) as usize % 32] ^ 0x44 }
-            else if i < 176 { product_before_oct[(i - 160) as usize % 32] ^ 0x55 }
-            else if i < 192 { nibble_product[(i - 176) as usize % 32] ^ 0x66 }
-            else if i < 208 { product[(i - 192) as usize % 32] ^ 0x77 }
-            else if i < 224 { hash_bytes[(i - 208) as usize % 32] ^ 0x88 }
-            else if i < 240 { product_before_oct[(i - 224) as usize % 32] ^ 0x99 }
-            else { nibble_product[(i - 240) as usize % 32] ^ 0xAA };
+        let value = if i < 16 { (product[i as usize % 32].wrapping_mul(0x03).wrapping_add(i.wrapping_mul(0xAA))) & 0xFF }
+        else if i < 32 { (hash_bytes[(i - 16) as usize % 32].wrapping_mul(0x05).wrapping_add((i - 16).wrapping_mul(0xBB))) & 0xFF }
+        else if i < 48 { (product_before_oct[(i - 32) as usize % 32].wrapping_mul(0x07).wrapping_add((i - 32).wrapping_mul(0xCC))) & 0xFF }
+        else if i < 64 { (nibble_product[(i - 48) as usize % 32].wrapping_mul(0x0F).wrapping_add((i - 48).wrapping_mul(0xDD))) & 0xFF }
+        else if i < 80 { (product[(i - 64) as usize % 32].wrapping_mul(0x11).wrapping_add((i - 64).wrapping_mul(0xEE))) & 0xFF }
+        else if i < 96 { (hash_bytes[(i - 80) as usize % 32].wrapping_mul(0x13).wrapping_add((i - 80).wrapping_mul(0xFF))) & 0xFF }
+        else if i < 112 { (product_before_oct[(i - 96) as usize % 32].wrapping_mul(0x17).wrapping_add((i - 96).wrapping_mul(0x11))) & 0xFF }
+        else if i < 128 { (nibble_product[(i - 112) as usize % 32].wrapping_mul(0x19).wrapping_add((i - 112).wrapping_mul(0x22))) & 0xFF }
+        else if i < 144 { (product[(i - 128) as usize % 32].wrapping_mul(0x1D).wrapping_add((i - 128).wrapping_mul(0x33))) & 0xFF }
+        else if i < 160 { (hash_bytes[(i - 144) as usize % 32].wrapping_mul(0x1F).wrapping_add((i - 144).wrapping_mul(0x44))) & 0xFF }
+        else if i < 176 { (product_before_oct[(i - 160) as usize % 32].wrapping_mul(0x23).wrapping_add((i - 160).wrapping_mul(0x55))) & 0xFF }
+        else if i < 192 { (nibble_product[(i - 176) as usize % 32].wrapping_mul(0x29).wrapping_add((i - 176).wrapping_mul(0x66))) & 0xFF }
+        else if i < 208 { (product[(i - 192) as usize % 32].wrapping_mul(0x2F).wrapping_add((i - 192).wrapping_mul(0x77))) & 0xFF }
+        else if i < 224 { (hash_bytes[(i - 208) as usize % 32].wrapping_mul(0x31).wrapping_add((i - 208).wrapping_mul(0x88))) & 0xFF }
+        else if i < 240 { (product_before_oct[(i - 224) as usize % 32].wrapping_mul(0x37).wrapping_add((i - 224).wrapping_mul(0x99))) & 0xFF }
+        else { (nibble_product[(i - 240) as usize % 32].wrapping_mul(0x3F).wrapping_add((i - 240).wrapping_mul(0xAA))) & 0xFF };
     
         // **Rotations and Index Calculation for S-box Assignment**  
         // This section performs bitwise rotation operations and computes the index used for accessing values from a source array.  
@@ -591,4 +678,5 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
 
     // Final Cryptixhash v2
     CryptixHashV2::hash(Hash::from_bytes(b3_hash_array)) // Return
+}
 }
