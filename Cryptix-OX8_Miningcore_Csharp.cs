@@ -253,13 +253,13 @@ public class CryptixJob : KaspaJob
             rotationLeft &= 0xFF;
             rotationRight &= 0xFF;
 
-            int index = (i + rotationLeft + rotationRight) % 32;
-            sbox[i] = (byte)(sourceArray[index] ^ value);
+            int index_sbox = (i + rotationLeft + rotationRight) % 32;
+            sbox[i] = (byte)(sourceArray[index_sbox] ^ value);
         }
 
         // Update Sbox Values
-        int index = (product_before_oct[2] % 8) + 1;  
-        int iterations = 1 + (product[index] % 2);
+        int index_update = (productBeforeOct[2] % 8) + 1;  
+        int iterations = 1 + (product[index_update] % 2);
 
         for (int j = 0; j < iterations; j++) {
             byte[] temp_sbox = (byte[])sbox.Clone();
@@ -268,12 +268,12 @@ public class CryptixJob : KaspaJob
                 byte value = temp_sbox[i];
 
                 int rotate_left_shift = (product[(i + 1) % product.Length] + i + (i * 3)) % 8;
-                int rotate_right_shift = (hash_bytes[(i + 2) % hash_bytes.Length] + i + (i * 5)) % 8;
+                int rotate_right_shift = (sha3Hash[(i + 2) % sha3Hash.Length] + i + (i * 5)) % 8;
 
                 byte rotated_value = (byte)((value << rotate_left_shift) | (value >> (8 - rotate_left_shift)));
                 rotated_value |= (byte)((value >> rotate_right_shift) | (value << (8 - rotate_right_shift)));
 
-                byte xor_value = (byte)(((i + product[(i * 3) % product.Length] ^ hash_bytes[(i * 7) % hash_bytes.Length]) ^ 0xA5) << (i % 8));
+                byte xor_value = (byte)(((i + product[(i * 3) % product.Length] ^ sha3Hash[(i * 7) % sha3Hash.Length]) ^ 0xA5) << (i % 8));
                 xor_value ^= 0x55;
 
                 value ^= rotated_value;
@@ -286,35 +286,31 @@ public class CryptixJob : KaspaJob
         }
 
         // Blake3 Chaining
-        int index_blake = (product_before_oct[5] % 8) + 1;  
+        int index_blake = (productBeforeOct[5] % 8) + 1;  
         int iterations_blake = 1 + (product[index_blake] % 3);
 
-        byte[] b3_hash_array = (byte[])product.Clone(); 
+        byte[] b3_hash_array = (byte[])product.Clone();
+        Span<byte> output = stackalloc byte[32];
+
         for (int j = 0; j < iterations_blake; j++) {
             // BLAKE3 Hashing
-            using (var b3_hasher = new Blake3.Blake3()) {
-                b3_hasher.Update(b3_hash_array);
-                byte[] product_blake3 = b3_hasher.Finalize();
-                byte[] b3_hash_bytes = product_blake3;
-
-                // Convert
-                b3_hash_array = (byte[])b3_hash_bytes.Clone();
-            }
+            blake3Hasher.Digest(b3_hash_array, output);
+            b3_hash_array = output.ToArray();
         }
 
         // Apply S-Box to the product with XOR
         for (int i = 0; i < 32; i++) {
-            byte[] ref_array = (i * 31) % 4 switch {
-                0 => nibble_product,
-                1 => hash_bytes,
+            byte[] ref_array = (i * 31 % 4) switch {
+                0 => nibbleProduct,
+                1 => sha3Hash,
                 2 => product,
-                _ => product_before_oct,
+                _ => productBeforeOct,
             };
 
             int byte_val = ref_array[(i * 13) % ref_array.Length];
 
-            int index = (byte_val + product[(i * 31) % product.Length] + hash_bytes[(i * 19) % hash_bytes.Length] + i * 41) % 256;  
-            b3_hash_array[i] ^= sbox[index]; 
+            int index_end = (byte_val + product[(i * 31) % product.Length] + sha3Hash[(i * 19) % sha3Hash.Length] + i * 41) % 256;  
+            b3_hash_array[i] ^= sbox[index_end]; 
         }
 
         // return
@@ -345,100 +341,100 @@ public class CryptixJob : KaspaJob
 
         for (byte i = 0; i < iteration_count; ++i)
         {
-            sha3_256Hasher.Digest(sha3_hash, sha3_hash); 
+            sha3_256Hasher.Digest(sha3_hash, sha3_hash);
 
-            if (sha3_hash[1] % 4 == 0)
+            if ((sha3_hash[1] % 4) == 0)
             {
-                byte repeat = (sha3_hash[2] % 4) + 1;
+                byte repeat = (byte)((sha3_hash[2] % 4) + 1);
                 for (byte j = 0; j < repeat; ++j)
                 {
                     byte target_byte = (byte)((sha3_hash[1] + i) % 32);
-                    byte xor_value = sha3_hash[i % 16] ^ 0xA5;
+                    byte xor_value = (byte)(sha3_hash[i % 16] ^ 0xA5);
                     sha3_hash[target_byte] ^= xor_value;
 
                     byte rotation_byte = sha3_hash[i % 32];
-                    byte rotation_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 2;
+                    byte rotation_amount = (byte)(((sha3_hash[1] + sha3_hash[3]) % 4) + 2);
                     sha3_hash[target_byte] = (rotation_byte % 2 == 0)
                         ? RotateLeft(sha3_hash[target_byte], rotation_amount)
                         : RotateRight(sha3_hash[target_byte], rotation_amount);
 
-                    byte shift_amount = (sha3_hash[5] + sha3_hash[1]) % 3 + 1;
+                    byte shift_amount = (byte)(((sha3_hash[5] + sha3_hash[1]) % 3) + 1);
                     sha3_hash[target_byte] ^= RotateLeft(sha3_hash[target_byte], shift_amount);
                 }
             }
-            else if (sha3_hash[3] % 3 == 0)
+            else if ((sha3_hash[3] % 3) == 0)
             {
-                byte repeat = (sha3_hash[4] % 5) + 1;
+                byte repeat = (byte)((sha3_hash[4] % 5) + 1);
                 for (byte j = 0; j < repeat; ++j)
                 {
                     byte target_byte = (byte)((sha3_hash[6] + i) % 32);
-                    byte xor_value = sha3_hash[i % 16] ^ 0x55;
+                    byte xor_value = (byte)(sha3_hash[i % 16] ^ 0x55);
                     sha3_hash[target_byte] ^= xor_value;
 
                     byte rotation_byte = sha3_hash[i % 32];
-                    byte rotation_amount = (sha3_hash[7] + sha3_hash[2]) % 6 + 1;
+                    byte rotation_amount = (byte)(((sha3_hash[7] + sha3_hash[2]) % 6) + 1);
                     sha3_hash[target_byte] = (rotation_byte % 2 == 0)
                         ? RotateLeft(sha3_hash[target_byte], rotation_amount)
                         : RotateRight(sha3_hash[target_byte], rotation_amount);
 
-                    byte shift_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 1;
+                    byte shift_amount = (byte)(((sha3_hash[1] + sha3_hash[3]) % 4) + 1);
                     sha3_hash[target_byte] ^= RotateLeft(sha3_hash[target_byte], shift_amount);
                 }
             }
-            else if (sha3_hash[2] % 6 == 0)
+            else if ((sha3_hash[2] % 6) == 0)
             {
-                byte repeat = (sha3_hash[6] % 4) + 1;
+                byte repeat = (byte)((sha3_hash[6] % 4) + 1);
                 for (byte j = 0; j < repeat; ++j)
                 {
                     byte target_byte = (byte)((sha3_hash[10] + i) % 32);
-                    byte xor_value = sha3_hash[i % 16] ^ 0xFF;
+                    byte xor_value = (byte)(sha3_hash[i % 16] ^ 0xFF);
                     sha3_hash[target_byte] ^= xor_value;
 
                     byte rotation_byte = sha3_hash[i % 32];
-                    byte rotation_amount = (sha3_hash[7] + sha3_hash[7]) % 7 + 1;
+                    byte rotation_amount = (byte)(((sha3_hash[7] + sha3_hash[7]) % 7) + 1);
                     sha3_hash[target_byte] = (rotation_byte % 2 == 0)
                         ? RotateLeft(sha3_hash[target_byte], rotation_amount)
                         : RotateRight(sha3_hash[target_byte], rotation_amount);
 
-                    byte shift_amount = (sha3_hash[3] + sha3_hash[5]) % 5 + 2;
+                    byte shift_amount = (byte)(((sha3_hash[3] + sha3_hash[5]) % 5) + 2);
                     sha3_hash[target_byte] ^= RotateLeft(sha3_hash[target_byte], shift_amount);
                 }
             }
-            else if (sha3_hash[7] % 5 == 0)
+            else if ((sha3_hash[7] % 5) == 0)
             {
-                byte repeat = (sha3_hash[8] % 4) + 1;
+                byte repeat = (byte)((sha3_hash[8] % 4) + 1);
                 for (byte j = 0; j < repeat; ++j)
                 {
                     byte target_byte = (byte)((sha3_hash[25] + i) % 32);
-                    byte xor_value = sha3_hash[i % 16] ^ 0x66;
+                    byte xor_value = (byte)(sha3_hash[i % 16] ^ 0x66);
                     sha3_hash[target_byte] ^= xor_value;
 
                     byte rotation_byte = sha3_hash[i % 32];
-                    byte rotation_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 2;
+                    byte rotation_amount = (byte)(((sha3_hash[1] + sha3_hash[3]) % 4) + 2);
                     sha3_hash[target_byte] = (rotation_byte % 2 == 0)
                         ? RotateLeft(sha3_hash[target_byte], rotation_amount)
                         : RotateRight(sha3_hash[target_byte], rotation_amount);
 
-                    byte shift_amount = (sha3_hash[1] + sha3_hash[3]) % 4 + 1;
+                    byte shift_amount = (byte)(((sha3_hash[1] + sha3_hash[3]) % 4) + 1);
                     sha3_hash[target_byte] ^= RotateLeft(sha3_hash[target_byte], shift_amount);
                 }
             }
-            else if (sha3_hash[8] % 7 == 0)
+            else if ((sha3_hash[8] % 7) == 0)
             {
-                byte repeat = (sha3_hash[9] % 5) + 1;
+                byte repeat = (byte)((sha3_hash[9] % 5) + 1);
                 for (byte j = 0; j < repeat; ++j)
                 {
                     byte target_byte = (byte)((sha3_hash[30] + i) % 32);
-                    byte xor_value = sha3_hash[i % 16] ^ 0x77;
+                    byte xor_value = (byte)(sha3_hash[i % 16] ^ 0x77);
                     sha3_hash[target_byte] ^= xor_value;
 
                     byte rotation_byte = sha3_hash[i % 32];
-                    byte rotation_amount = (sha3_hash[2] + sha3_hash[5]) % 5 + 1;
+                    byte rotation_amount = (byte)(((sha3_hash[2] + sha3_hash[5]) % 5) + 1);
                     sha3_hash[target_byte] = (rotation_byte % 2 == 0)
                         ? RotateLeft(sha3_hash[target_byte], rotation_amount)
                         : RotateRight(sha3_hash[target_byte], rotation_amount);
 
-                    byte shift_amount = (sha3_hash[7] + sha3_hash[9]) % 6 + 2;
+                    byte shift_amount = (byte)(((sha3_hash[7] + sha3_hash[9]) % 6) + 2);
                     sha3_hash[target_byte] ^= RotateLeft(sha3_hash[target_byte], shift_amount);
                 }
             }
