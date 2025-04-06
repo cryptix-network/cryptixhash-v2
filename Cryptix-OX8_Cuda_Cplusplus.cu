@@ -53,108 +53,67 @@ __device__ __inline__ void amul4bit(uint32_t packed_vec1[32], uint32_t packed_ve
     *ret = res;
 }
 
-/*
-// Sinusoidal (It needs to be tested in the testnet first due to arch rounding errors)
-__device__ __inline__ void sinusoidal_multiply(uint8_t sinus_in, uint8_t &sinus_out) {
-    uint8_t left = (sinus_in >> 4) & 0x0F;  
-    uint8_t right = sinus_in & 0x0F;   
-
-    for (int i = 0; i < 16; i++) {
-        uint8_t temp = right;
-        right = (left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F; 
-        left = temp;
-    }
-
-    uint8_t complex_op = (left * right + 97) & 0xFF;  
-    uint8_t nonlinear_op = (complex_op ^ (right >> 4) ^ (left * 11)) & 0xFF;
-
-    uint16_t sinus_in_u16 = static_cast<uint16_t>(sinus_in); 
-    float angle = (sinus_in_u16 % 360) * (3.14159265359f / 180.0f);
-    float sin_value = __sinf(angle);  
-    uint8_t sin_lookup = static_cast<uint8_t>(fabsf(sin_value) * 255.0f); 
-
-    uint8_t modulated_value = (sin_lookup ^ (sin_lookup >> 3) ^ (sin_lookup << 1) ^ 0xA5) & 0xFF;
-    uint8_t sbox_val = ((modulated_value ^ (modulated_value >> 4)) * 43 + 17) & 0xFF;
-    uint8_t obfuscated = ((sbox_val >> 2) | (sbox_val << 6)) ^ 0xF3 ^ 0xA5;
-
-    sinus_out = ((obfuscated ^ (sbox_val * 7) ^ nonlinear_op) + 0xF1) & 0xFF;
+// ***Anti-FPGA Sidedoor***
+__device__ uint32_t wrapping_mul_32(uint32_t a, uint32_t b) {
+    return (a * b) & 0xFFFFFFFF;
 }
-*/
 
-/*
-// ***Complex Lookup Table***
+__device__ uint32_t rotate_left_32(uint32_t value, uint32_t shift) {
+    return (value << shift) | (value >> (32 - shift));
+}
+
+__device__ uint32_t rotate_right_32(uint32_t value, uint32_t shift) {
+    return (value >> shift) | (value << (32 - shift));
+}
+
+
 __device__ uint32_t chaotic_random(uint32_t x) {
-    for (int i = 0; i < 5; i++) {
-        x = (x * 3646246005U) << 13 | (x >> (32 - 13));
-        x ^= 0xA5A5A5A5;
+    return wrapping_mul_32(x, 362605) ^ 0xA5A5A5A5;
+}
+
+__device__ uint32_t memory_intensive_mix(uint32_t seed) {
+    uint32_t acc = seed;
+    for (int i = 0; i < 32; i++) {
+        acc = wrapping_mul_32(acc, 16625) ^ i;
+    }
+    return acc;
+}
+
+__device__ uint32_t recursive_fibonacci_modulated(uint32_t x, uint8_t depth) {
+    uint32_t a = 1, b = x | 1;
+    uint8_t actual_depth = (depth < 8) ? depth : 8;
+
+    for (int i = 0; i < actual_depth; i++) {
+        uint32_t temp = b;
+        b = b + (a ^ rotate_left_32(x, b % 17)); 
+        a = temp;
+        x = rotate_right_32(x, a % 13) ^ b; 
     }
     return x;
 }
 
-__device__ std::vector<uint32_t> prime_factors(uint32_t n) {
-    std::vector<uint32_t> factors;
-    uint32_t i = 2;
-    while (i * i <= n) {
-        while (n % i == 0) {
-            factors.push_back(i);
-            n /= i;
-        }
-        i += 1;
-    }
-    if (n > 1) {
-        factors.push_back(n);
-    }
-    return factors;
-}
+__device__ uint32_t anti_fpga_hash(uint32_t input) {
+    uint32_t x = input;
+    uint32_t noise = memory_intensive_mix(x);
+    uint8_t depth = ((noise & 0x0F) + 10) & 0xFF;
 
-__device__ uint32_t serial_dependency(uint32_t x, uint8_t rounds) {
-    for (int i = 0; i < rounds; i++) {
-        x = (x * 3 + 5) << 7 | (x >> (32 - 7)); 
-        x ^= chaotic_random(x);
-    }
+    uint32_t prime_factor_sum = __popc(x); 
+    x ^= prime_factor_sum;
+
+    x = recursive_fibonacci_modulated(x ^ noise, depth);
+    x ^= memory_intensive_mix(rotate_left_32(x, 9));  
     return x;
 }
 
-__device__ uint8_t unpredictable_depth(uint32_t x) {
-    uint32_t noise = chaotic_random(x) & 0xF;
-    return 10 + (uint8_t)noise;
-}
+__device__ void compute_after_comp_product(uint8_t* pre_comp_product, uint8_t* after_comp_product) {
+    for (int i = 0; i < 32; i++) {
+        uint32_t input = pre_comp_product[i] ^ (i << 8);
+        uint32_t modified_input = chaotic_random(input % 256);
 
-__device__ uint8_t recursive_multiplication_with_randomness(uint8_t dynlut_input) {
-    uint8_t depth = unpredictable_depth((uint32_t)dynlut_input);
-    return (uint8_t)(serial_dependency((uint32_t)dynlut_input, depth) & 0xFF);
-}
-
-__device__ uint8_t recursive_multiplication_with_factors(uint8_t dynlut_input, uint8_t depth) {
-    uint32_t result = (uint32_t)dynlut_input;
-
-    for (int i = 0; i < depth; i++) {
-        std::vector<uint32_t> factors = prime_factors(result);
-        for (auto factor : factors) {
-            result = (result * factor) & 0xFFFFFFF;
-        }
-        result = (result * 3893621) & 0xFFFFFFF;
-    }
-
-    return (uint8_t)(result & 0xFF);
-}
-
-__device__ uint8_t dynamic_depth_multiplication(uint8_t dynlut_input) {
-    return recursive_multiplication_with_randomness(dynlut_input);
-}
-
-__device__ uint8_t complex_lookup_table(uint8_t dynlut_input) {
-    uint8_t dynlut_out = dynamic_depth_multiplication(dynlut_input);
-    return dynlut_out;
-}
-
-__global__ void process_complex_lookup_table(uint8_t *input, uint8_t *output, int num_elements) {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    if (idx < num_elements) {
-        output[idx] = complex_lookup_table(input[idx]);
+        uint32_t hashed = anti_fpga_hash(modified_input);
+        after_comp_product[i] = (uint8_t)(hashed & 0xFF);
     }
 }
-*/
 
 // Rotate left
 __device__ __inline__ uint8_t rotate_left(uint8_t value, int shift) {
@@ -575,6 +534,10 @@ extern "C" {
                 memcpy(sbox, temp_sbox, 256);
             }
 
+            // Anti FPGA Sidedoor
+            uint8_t after_comp_product[32];
+            compute_after_comp_product(product, after_comp_product);
+
             // Blake3 Chaining
             size_t index_blake = ((size_t)product_before_oct[5] % 8) + 1;  
             int iterations_blake = 1 + (product[index_blake] % 3);            
@@ -624,6 +587,12 @@ extern "C" {
                 // product_blake3[i] ^= sbox[index] ^ sinus_out;
             }
 
+            // Final XOR 
+            #pragma unroll
+            for (int i = 0; i < 32; i++) {
+                product_blake3[i] ^= after_comp_product[i];
+            }
+
             memset(input, 0, 80);
             memcpy(input, product_blake3, 32);
             hash(heavyP, hash_.hash, input);
@@ -634,3 +603,31 @@ extern "C" {
         }
     }
 }
+
+/*
+// Sinusoidal (It needs to be tested in the testnet first due to arch rounding errors)
+__device__ __inline__ void sinusoidal_multiply(uint8_t sinus_in, uint8_t &sinus_out) {
+    uint8_t left = (sinus_in >> 4) & 0x0F;  
+    uint8_t right = sinus_in & 0x0F;   
+
+    for (int i = 0; i < 16; i++) {
+        uint8_t temp = right;
+        right = (left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F; 
+        left = temp;
+    }
+
+    uint8_t complex_op = (left * right + 97) & 0xFF;  
+    uint8_t nonlinear_op = (complex_op ^ (right >> 4) ^ (left * 11)) & 0xFF;
+
+    uint16_t sinus_in_u16 = static_cast<uint16_t>(sinus_in); 
+    float angle = (sinus_in_u16 % 360) * (3.14159265359f / 180.0f);
+    float sin_value = __sinf(angle);  
+    uint8_t sin_lookup = static_cast<uint8_t>(fabsf(sin_value) * 255.0f); 
+
+    uint8_t modulated_value = (sin_lookup ^ (sin_lookup >> 3) ^ (sin_lookup << 1) ^ 0xA5) & 0xFF;
+    uint8_t sbox_val = ((modulated_value ^ (modulated_value >> 4)) * 43 + 17) & 0xFF;
+    uint8_t obfuscated = ((sbox_val >> 2) | (sbox_val << 6)) ^ 0xF3 ^ 0xA5;
+
+    sinus_out = ((obfuscated ^ (sbox_val * 7) ^ nonlinear_op) + 0xF1) & 0xFF;
+}
+*/

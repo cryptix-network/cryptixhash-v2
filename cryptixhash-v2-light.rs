@@ -176,116 +176,77 @@ pub fn calculate_pow(&self, nonce: u64) -> Uint256 {
     Uint256::from_le_bytes(final_hash.as_bytes())
 }
 
-/*
-// ***Sinusoidal*** 
-// It needs to be tested in the testnet first due to arch rounding errors)
-fn sinusoidal_multiply(sinus_in: u8) -> u8 {
-    let mut left = (sinus_in >> 4) & 0x0F; 
-    let mut right = sinus_in & 0x0F;  
 
-    for _i in 0..16 {
-        let temp = right;
-        right = (left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F; 
-        left = temp;
-    }
+// **Anti-FPGA Sidedoor**  
+// This set of functions aims to create a computationally difficult process for FPGA-based execution.  
+// The `chaotic_random` function generates a pseudo-random output based on the input `x` using a non-linear transformation.  
+// The `memory_intensive_mix` function performs a sequence of mixing operations on the input `seed`, involving multiple iterations and multiplications.  
+// The `recursive_fibonacci_modulated` function modulates a Fibonacci sequence with rotations and bitwise operations, making it difficult to parallelize.  
+// The `anti_fpga_hash` combines these functions to generate a complex hash, incorporating dynamic depth, prime factor calculations, and memory mixing.  
+// Finally, the `compute_after_comp_product` function hashes each byte of the input array using `anti_fpga_hash` and stores the results in an output array.
 
-    let complex_op = (left * right + 97) & 0xFF; 
-    let nonlinear_op = (complex_op ^ (right >> 4) ^ (left * 11)) & 0xFF;
-
-    let angle: f32 = (sinus_in as u16 % 360) as f32 * (3.14159265359f32 / 180.0f32);
-    let sin_value: f32 = angle.sin();
-    let sin_lookup = (f32::abs(sin_value) * 255.0) as u8;  
-
-    let modulated_value = (sin_lookup ^ (sin_lookup >> 3) ^ (sin_lookup << 1) ^ 0xA5) & 0xFF;
-    let sbox_val = ((modulated_value ^ (modulated_value >> 4)) * 43 + 17) & 0xFF;
-    let obfuscated = ((sbox_val >> 2) | (sbox_val << 6)) ^ 0xF3 ^ 0xA5;
-
-    let sinus_out = ((obfuscated ^ (sbox_val * 7) ^ nonlinear_op) + 0xF1) & 0xFF;
-
-    sinus_out
+// Chaotic Mul
+fn chaotic_random(x: u32) -> u32 {
+    (x.wrapping_mul(362605)) ^ 0xA5A5A5A5
 }
-*/
 
-// ***Complex Lookup Table***
-// - Pseudo-random generator: Utilizes XOR, shifts, and multiplications to create unpredictable behavior, making parallelization difficult.
-// - Prime factorization: Computationally expensive and resistant to FPGA acceleration due to its sequential nature.
-// - Serial dependency: Ensures that each computation depends on the previous result, preventing pipeline optimizations.
-// - Dynamic recursion depth: Introduces non-deterministic execution paths, complicating FPGA execution strategies.
-
-/*
-fn chaotic_random(mut x: u32) -> u32 {
-    for _ in 0..5 {
-        x = x.wrapping_mul(3646246005).rotate_left(13) ^ 0xA5A5A5A5;
+// Mix the Values
+fn memory_intensive_mix(seed: u32) -> u32 {
+    let mut acc = seed;
+    for i in 0..32 {
+        acc = (acc.wrapping_mul(16625)) ^ i;
     }
+    acc
+}
+
+// Fibonacci 
+fn recursive_fibonacci_modulated(mut x: u32, depth: u8) -> u32 {
+    let mut a = 1u32;
+    let mut b = x | 1;
+    
+    let actual_depth = depth.min(8);
+
+    for _ in 0..actual_depth {
+        let temp = b;
+        b = b.wrapping_add(a ^ (x.rotate_left((b % 17) as u32)));
+        a = temp;
+        x = x.rotate_right((a % 13) as u32) ^ b;
+    }
+
     x
 }
 
-fn prime_factors(mut n: u32) -> Vec<u32> {
-    let mut factors = Vec::new();
-    let mut i = 2;
-    while i * i <= n {
-        while n % i == 0 {
-            factors.push(i);
-            n /= i;
-        }
-        i += 1;
-    }
-    if n > 1 {
-        factors.push(n);
-    }
-    factors
-}
+// Hashing
+fn anti_fpga_hash(input: u32) -> u32 {
+    let mut x = input;
+    let noise = Self::memory_intensive_mix(x);
+    let depth = ((noise & 0x0F) + 10) as u8;
 
-fn serial_dependency(mut x: u32, rounds: u8) -> u32 {
-    for _ in 0..rounds {
-        x = x.wrapping_mul(3).wrapping_add(5).rotate_left(7);
-        x ^= Self::chaotic_random(x);
-    }
+    let prime_factor_sum = x.count_ones() as u32;
+
+    x ^= prime_factor_sum;
+
+    x = Self::recursive_fibonacci_modulated(x ^ noise, depth);
+    x ^= Self::memory_intensive_mix(x.rotate_left(9));
+
     x
 }
 
-fn unpredictable_depth(x: u32) -> u8 {
-    let noise = Self::chaotic_random(x) & 0xF;
-    10 + (noise as u8)  
-}
+// In and Out - Main
+fn compute_after_comp_product(pre_comp_product: [u8; 32]) -> [u8; 32] {
+    let mut after_comp_product = [0u8; 32];
 
-fn recursive_multiplication_with_randomness(dynlut_input: u8) -> u8 {
-    let depth = Self::unpredictable_depth(dynlut_input as u32);
-    Self::serial_dependency(dynlut_input as u32, depth) as u8
-}
+    for i in 0..32 {
+        let input = pre_comp_product[i] as u32 ^ ((i as u32) << 8);
+        let normalized_input = input % 256;
+        let modified_input = Self::chaotic_random(normalized_input);
 
-fn recursive_multiplication_with_factors(dynlut_input: u8, depth: u8) -> u8 {
-    let dynlut_input = dynlut_input as u32;
-    let mut result = dynlut_input;
-
-    for _ in 0..depth {
-        let factors = Self::prime_factors(result);
-        for factor in factors {
-            result = result.wrapping_mul(factor);
-        }
-        result = (result * 3893621) & 0xFFFFFFF;
+        let hashed = Self::anti_fpga_hash(modified_input);
+        after_comp_product[i] = (hashed & 0xFF) as u8;
     }
 
-    (result & 0xFF) as u8
+    after_comp_product
 }
-
-fn dynamic_depth_multiplication(dynlut_input: u8) -> u8 {
-    Self::recursive_multiplication_with_randomness(dynlut_input)
-}
-
-fn complex_lookup_table(dynlut_input: u8) -> u8 {
-    let dynlut_out = Self::dynamic_depth_multiplication(dynlut_input);
-    dynlut_out
-}
-    */
-
-/*
-let mut lookup_table = [0u8; 64];
-
-for i in 0..64 {
-    lookup_table[i] = Self::complex_lookup_table(i as u8);
-}
-    */    
 
 // **Octonion Multiply Function**  
 // This function multiplies two 8-dimensional octonions, `a` and `b`, and returns the resulting octonion.
@@ -684,6 +645,10 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
         sbox = temp_sbox;
     }
 
+    // **Anti-FPGA Sidedoor**  
+    let pre_comp_product: [u8; 32] = product;
+    let after_comp_product = Self::compute_after_comp_product(pre_comp_product);
+
     // ** BLAKE3 Hashing Step **  
     // This step applies the BLAKE3 cryptographic hash function to the `product` array multiple times in a chained manner.
     // The number of iterations (1 to 3) is determined dynamically based on `product[index_blake]`.  
@@ -734,7 +699,11 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
                     + i * 41) % 256;  
         
         b3_hash_array[i] ^= sbox[index]; 
-        // b3_hash_array[i] ^= sbox[index] ^ sinus_out;
+    }
+
+    // Final Xor
+    for i in 0..32 {
+        b3_hash_array[i] ^= after_comp_product[i];
     }
 
     // ** Tada Cryptix Hash v2 **  
@@ -744,3 +713,33 @@ pub fn cryptix_hash(&self, hash: Hash) -> Hash {
     CryptixHashV2::hash(Hash::from_bytes(b3_hash_array)) // Return
 }
 
+/*
+// ***Sinusoidal*** 
+// It needs to be tested in the testnet first due to arch rounding errors)
+fn sinusoidal_multiply(sinus_in: u8) -> u8 {
+    let mut left = (sinus_in >> 4) & 0x0F; 
+    let mut right = sinus_in & 0x0F;  
+
+    for _i in 0..16 {
+        let temp = right;
+        right = (left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F; 
+        left = temp;
+    }
+
+    let complex_op = (left * right + 97) & 0xFF; 
+    let nonlinear_op = (complex_op ^ (right >> 4) ^ (left * 11)) & 0xFF;
+
+    let angle: f64 = (sinus_in as u16 % 360) as f64 * (3.14159265359f64 / 180.0f64);
+    let sin_value: f64 = angle.sin();
+    let sin_lookup = (f64::abs(sin_value) * 255.0) as u8;  
+
+    let modulated_value = (sin_lookup ^ (sin_lookup >> 3) ^ (sin_lookup << 1) ^ 0xA5) & 0xFF;
+    let sbox_val = ((modulated_value ^ (modulated_value >> 4)) * 43 + 17) & 0xFF;
+    let obfuscated = ((sbox_val >> 2) | (sbox_val << 6)) ^ 0xF3 ^ 0xA5;
+
+    let sinus_out = ((obfuscated ^ (sbox_val * 7) ^ nonlinear_op) + 0xF1) & 0xFF;
+
+    sinus_out
+}
+*/
+}
