@@ -7,11 +7,11 @@
 
 - Rust Node ✅
 
-- Miningcore 🔄
+- Miningcore ✅
 
-- Go Node 🚧
+- Go Node 🔄
 
-- Stratum Bridge 🚧
+- Stratum Bridge 🔄
 
 
 -----
