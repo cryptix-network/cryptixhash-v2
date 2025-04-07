@@ -128,7 +128,7 @@ public class CryptixJob : KaspaJob
             product[i] = (byte)((aNibble << 4) | bNibble);
         }
 
-        // Final XOR
+        // Final XOR Nibbles
         for (int i = 0; i < 32; i++)
         {
             product[i] ^= data[i];
@@ -319,7 +319,11 @@ public class CryptixJob : KaspaJob
 
             sbox = (byte[])temp_sbox.Clone();
         }
-    
+
+        // Anti FPGA Sidedoor
+         byte[] afterCompProduct = new byte[32];
+        ComputeAfterCompProduct(product, afterCompProduct);
+
         // Blake3 Chaining
         int index_blake = (productBeforeOct[5] % 8) + 1;  
         int iterations_blake = 1 + (product[index_blake] % 3);
@@ -349,6 +353,12 @@ public class CryptixJob : KaspaJob
                             + i * 41) % 256;
 
             b3_hash_array[i] ^= sbox[index_end]; 
+        }
+
+        // Final XOR
+        for (int i = 0; i < 32; i++)
+        {
+            b3_hash_array[i] ^= afterCompProduct[i];
         }
 
         // return
@@ -482,7 +492,7 @@ public class CryptixJob : KaspaJob
         
         bool isHighDiffEnabled = false;
         bool isNonceSpamCheckEnabled = false;
-        bool isDuplicateShareCheckEnabled = true;
+        bool isDuplicateShareCheckEnabled = false;
         
         string contextKey = context.ToString(); 
 
@@ -539,21 +549,22 @@ public class CryptixJob : KaspaJob
         // ---------------------------
 
         // Min Diff
-        if (!isBlockCandidate && ratio < 0.99 )
+        if(!isBlockCandidate && ratio < 0.99)
         {
-            if (context.VarDiff?.LastUpdate != null && context.PreviousDifficulty.HasValue)
+            // check if share matched the previous difficulty from before a vardiff retarget
+            if(context.VarDiff?.LastUpdate != null && context.PreviousDifficulty.HasValue)
             {
                 ratio = shareDiff / context.PreviousDifficulty.Value;
 
-                if (ratio < 0.99)
+                if(ratio < 0.99)
                     throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
 
+                // use previous difficulty
                 stratumDifficulty = context.PreviousDifficulty.Value;
             }
+
             else
-            {
                 throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
-            }
         }
 
         // Max Diff
@@ -778,109 +789,90 @@ public class CryptixJob : KaspaJob
         return (byte)((value >> shift) | (value << (8 - shift)));
     }
 
-    /*
-    // Sinusoidal Multiply (Tested in Testnet due to architecture rounding errors)
-    static void SinusoidalMultiply(byte sinusIn, ref byte sinusOut) {
-        byte left = (byte)((sinusIn >> 4) & 0x0F);
-        byte right = (byte)(sinusIn & 0x0F);
-
-        for (int i = 0; i < 16; i++) {
-            byte temp = right;
-            right = (byte)((left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F);
-            left = temp;
-        }
-
-        byte complexOp = (byte)((left * right + 97) & 0xFF);
-        byte nonlinearOp = (byte)((complexOp ^ (right >> 4) ^ (left * 11)) & 0xFF);
-
-        ushort sinusInU16 = (ushort)sinusIn;
-        float angle = (sinusInU16 % 360) * (float)(Math.PI / 180.0f);
-        float sinValue = (float)Math.Sin(angle);
-        byte sinLookup = (byte)(Math.Abs(sinValue) * 255.0f);
-
-        byte modulatedValue = (byte)((sinLookup ^ (sinLookup >> 3) ^ (sinLookup << 1) ^ 0xA5) & 0xFF);
-        byte sboxVal = (byte)((modulatedValue ^ (modulatedValue >> 4)) * 43 + 17);
-        byte obfuscated = (byte)(((sboxVal >> 2) | (sboxVal << 6)) ^ 0xF3 ^ 0xA5);
-
-        sinusOut = (byte)((obfuscated ^ (sboxVal * 7) ^ nonlinearOp + 0xF1) & 0xFF);
+        public static uint WrappingMul32(uint a, uint b)
+    {
+        return (a * b) & 0xFFFFFFFF;
     }
-    */
+
+    // Anti FPGA Sidedoor
+
+    public static uint ChaoticRandom(uint x)
+    {
+        return WrappingMul32(x, 362605) ^ 0xA5A5A5A5;
+    }
+
+    public static uint MemoryIntensiveMix(uint seed)
+    {
+        uint acc = seed;
+        for (int i = 0; i < 32; i++)
+        {
+            acc = WrappingMul32(acc, 16625) ^ (uint)i;
+        }
+        return acc;
+    }
+
+    public static uint RecursiveFibonacciModulated(uint x, byte depth)
+    {
+        uint a = 1, b = x | 1;
+        byte actualDepth = (depth < 8) ? depth : (byte)8;
+
+        for (int i = 0; i < actualDepth; i++)
+        {
+            uint temp = b;
+            b = b + (a ^ RotateLeft32(x, b % 17));
+            a = temp;
+            x = RotateRight32(x, a % 13) ^ b;
+        }
+        return x;
+    }
+
+    public static uint AntiFpgaHash(uint input)
+    {
+        uint x = input;
+        uint noise = MemoryIntensiveMix(x);
+        byte depth = (byte)((noise & 0x0F) + 10);
+
+        uint primeFactorSum = PopCount(x);
+        x ^= primeFactorSum;
+
+        x = RecursiveFibonacciModulated(x ^ noise, depth);
+        x ^= MemoryIntensiveMix(RotateLeft32(x, 9));
+        return x;
+    }
+
+    public static void ComputeAfterCompProduct(byte[] preCompProduct, byte[] afterCompProduct)
+    {
+        for (int i = 0; i < 32; i++)
+        {
+            uint input = (uint)(preCompProduct[i] ^ (i << 8));
+            uint modifiedInput = ChaoticRandom(input % 256);
+
+            uint hashed = AntiFpgaHash(modifiedInput);
+            afterCompProduct[i] = (byte)(hashed & 0xFF);
+        }
+    }
+
+    public static uint PopCount(uint value)
+    {
+        uint count = 0;
+        while (value != 0)
+        {
+            count += value & 1;
+            value >>= 1;
+        }
+        return count;
+    }
+
+    public static uint RotateLeft32(uint value, uint shift)
+    {
+        return (value << (int)shift) | (value >> (32 - (int)shift));
+    }
+
+    public static uint RotateRight32(uint value, uint shift)
+    {
+        return (value >> (int)shift) | (value << (32 - (int)shift));
+    }
     
-    /*
-    // Complex Lookup Table
-    static uint ChaoticRandom(uint x) {
-        for (int i = 0; i < 5; i++) {
-            x = ((x * 3646246005U) << 13) | (x >> (32 - 13));
-            x ^= 0xA5A5A5A5;
-        }
-        return x;
-    }
-
-
-    static List<uint> PrimeFactors(uint n) {
-        var factors = new List<uint>();
-        uint i = 2;
-        while (i * i <= n) {
-            while (n % i == 0) {
-                factors.Add(i);
-                n /= i;
-            }
-            i += 1;
-        }
-        if (n > 1) {
-            factors.Add(n);
-        }
-        return factors;
-    }
-
-    static uint SerialDependency(uint x, byte rounds) {
-        for (int i = 0; i < rounds; i++) {
-            x = ((x * 3 + 5) << 7) | (x >> (32 - 7));
-            x ^= ChaoticRandom(x);
-        }
-        return x;
-    }
-
-    static byte UnpredictableDepth(uint x) {
-        uint noise = ChaoticRandom(x) & 0xF;
-        return (byte)(10 + noise);
-    }
-
-    static byte RecursiveMultiplicationWithRandomness(byte dynLutInput) {
-        byte depth = UnpredictableDepth(dynLutInput);
-        return (byte)(SerialDependency(dynLutInput, depth) & 0xFF);
-    }
-
-    static byte RecursiveMultiplicationWithFactors(byte dynLutInput, byte depth) {
-        uint result = dynLutInput;
-
-        for (int i = 0; i < depth; i++) {
-            var factors = PrimeFactors(result);
-            foreach (var factor in factors) {
-                result = (result * factor) & 0xFFFFFFF;
-            }
-            result = (result * 3893621) & 0xFFFFFFF;
-        }
-
-        return (byte)(result & 0xFF);
-    }
-
-    static byte DynamicDepthMultiplication(byte dynLutInput) {
-        return RecursiveMultiplicationWithRandomness(dynLutInput);
-    }
-
-    static byte ComplexLookupTable(byte dynLutInput) {
-        return DynamicDepthMultiplication(dynLutInput);
-    }
-
-    // Method to process the complex lookup table on an array
-    static void ProcessComplexLookupTable(byte[] input, byte[] output, int numElements) {
-        for (int i = 0; i < numElements; i++) {
-            output[i] = ComplexLookupTable(input[i]);
-        }
-    }
-    */
-
 }
 public static class OctonionMathExtensions
 {
@@ -918,3 +910,31 @@ public static class OctonionMathExtensions
         return (byte)((a * b) & 0xFF);
     }
 }
+
+    /*
+    // Sinusoidal Multiply (Tested in Testnet due to architecture rounding errors)
+    static void SinusoidalMultiply(byte sinusIn, ref byte sinusOut) {
+        byte left = (byte)((sinusIn >> 4) & 0x0F);
+        byte right = (byte)(sinusIn & 0x0F);
+
+        for (int i = 0; i < 16; i++) {
+            byte temp = right;
+            right = (byte)((left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F);
+            left = temp;
+        }
+
+        byte complexOp = (byte)((left * right + 97) & 0xFF);
+        byte nonlinearOp = (byte)((complexOp ^ (right >> 4) ^ (left * 11)) & 0xFF);
+
+        ushort sinusInU16 = (ushort)sinusIn;
+        float angle = (sinusInU16 % 360) * (float)(Math.PI / 180.0f);
+        float sinValue = (float)Math.Sin(angle);
+        byte sinLookup = (byte)(Math.Abs(sinValue) * 255.0f);
+
+        byte modulatedValue = (byte)((sinLookup ^ (sinLookup >> 3) ^ (sinLookup << 1) ^ 0xA5) & 0xFF);
+        byte sboxVal = (byte)((modulatedValue ^ (modulatedValue >> 4)) * 43 + 17);
+        byte obfuscated = (byte)(((sboxVal >> 2) | (sboxVal << 6)) ^ 0xF3 ^ 0xA5);
+
+        sinusOut = (byte)((obfuscated ^ (sboxVal * 7) ^ nonlinearOp + 0xF1) & 0xFF);
+    }
+    */
