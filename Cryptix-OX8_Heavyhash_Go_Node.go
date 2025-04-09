@@ -1,152 +1,70 @@
-func (state *State) CalculateProofOfWorkValue() *big.Int {
-	writer := hashes.NewPoWHashWriter()
-	writer.InfallibleWrite(state.prePowHash.ByteSlice())
+package pow
 
-	err := serialization.WriteElement(writer, state.Timestamp)
-	if err != nil {
-		panic(err)
+import (
+	"math"
+	"math/bits"
+
+	"github.com/zeebo/blake3"
+
+	"github.com/cryptix-network/cryptixd/domain/consensus/model/externalapi"
+	"github.com/cryptix-network/cryptixd/domain/consensus/utils/hashes"
+)
+
+const eps float64 = 1e-9
+
+type matrix [64][64]uint16
+
+func generateMatrix(hash *externalapi.DomainHash) *matrix {
+	var mat matrix
+	generator := newxoShiRo256PlusPlus(hash)
+	for {
+		for i := range mat {
+			for j := 0; j < 64; j += 16 {
+				val := generator.Uint64()
+				for shift := 0; shift < 16; shift++ {
+					mat[i][j+shift] = uint16(val >> (4 * shift) & 0x0F)
+				}
+			}
+		}
+		if mat.computeRank() == 64 {
+			return &mat
+		}
 	}
+}
 
-	zeroes := [32]byte{}
-	writer.InfallibleWrite(zeroes[:])
-
-	err = serialization.WriteElement(writer, state.Nonce)
-	if err != nil {
-		panic(err)
+func (mat *matrix) computeRank() int {
+	var B [64][64]float64
+	for i := range B {
+		for j := range B[0] {
+			B[i][j] = float64(mat[i][j])
+		}
 	}
-
-	initialHash := writer.Finalize()
-	hashBytes := initialHash.ByteSlice()
-	if len(hashBytes) != 32 {
-		panic("expected 32-byte hash")
-	}
-
-	iterations := int(hashBytes[0]%2) + 1
-	currentHash := make([]byte, 32)
-	copy(currentHash, hashBytes)
-
-	sha3Hasher := sha3.New256()
-
-	for i := 0; i < iterations; i++ {
-		sha3Hasher.Reset()
-		sha3Hasher.Write(currentHash)
-		newHash := sha3Hasher.Sum(nil)
-		copy(currentHash, newHash)
-
-		cond1 := currentHash[1]%4 == 0
-		cond2 := currentHash[3]%3 == 0
-		cond3 := currentHash[2]%6 == 0
-		cond4 := currentHash[7]%5 == 0
-		cond5 := currentHash[8]%7 == 0
-
-		switch {
-		case cond1:
-			repeat := int(currentHash[2]%4) + 1
-			for r := 0; r < repeat; r++ {
-				targetByte := ((int(currentHash[1]) + i) % 32)
-				xorVal := currentHash[i%16] ^ 0xA5
-				currentHash[targetByte] ^= xorVal
-
-				rotationByte := currentHash[i%32]
-				rotationAmount := ((uint32(currentHash[1]) + uint32(currentHash[3])) % 4) + 2
-				if rotationByte%2 == 0 {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], int(rotationAmount))
-				} else {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], -int(rotationAmount))
-				}
-
-				shiftAmount := ((uint32(currentHash[5]) + uint32(currentHash[1])) % 3) + 1
-				currentHash[targetByte] ^= bits.RotateLeft8(currentHash[targetByte], int(shiftAmount))
+	var rank int
+	var rowSelected [64]bool
+	for i := 0; i < 64; i++ {
+		var j int
+		for j = 0; j < 64; j++ {
+			if !rowSelected[j] && math.Abs(B[j][i]) > eps {
+				break
 			}
-
-		case cond2:
-			repeat := int(currentHash[4]%5) + 1
-			for r := 0; r < repeat; r++ {
-				targetByte := ((int(currentHash[6]) + i) % 32)
-				xorVal := currentHash[i%16] ^ 0x55
-				currentHash[targetByte] ^= xorVal
-
-				rotationByte := currentHash[i%32]
-				rotationAmount := ((uint32(currentHash[7]) + uint32(currentHash[2])) % 6) + 1
-				if rotationByte%2 == 0 {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], int(rotationAmount))
-				} else {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], -int(rotationAmount))
-				}
-
-				shiftAmount := ((uint32(currentHash[1]) + uint32(currentHash[3])) % 4) + 1
-				currentHash[targetByte] ^= bits.RotateLeft8(currentHash[targetByte], int(shiftAmount))
+		}
+		if j != 64 {
+			rank++
+			rowSelected[j] = true
+			for p := i + 1; p < 64; p++ {
+				B[j][p] /= B[j][i]
 			}
-
-		case cond3:
-			repeat := int(currentHash[6]%4) + 1
-			for r := 0; r < repeat; r++ {
-				targetByte := ((int(currentHash[10]) + i) % 32)
-				xorVal := currentHash[i%16] ^ 0xFF
-				currentHash[targetByte] ^= xorVal
-
-				rotationByte := currentHash[i%32]
-				rotationAmount := ((uint32(currentHash[7]) * 2) % 7) + 1
-				if rotationByte%2 == 0 {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], int(rotationAmount))
-				} else {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], -int(rotationAmount))
+			for k := 0; k < 64; k++ {
+				if k != j && math.Abs(B[k][i]) > eps {
+					for p := i + 1; p < 64; p++ {
+						B[k][p] -= B[j][p] * B[k][i]
+					}
 				}
-
-				shiftAmount := ((uint32(currentHash[3]) + uint32(currentHash[5])) % 5) + 2
-				currentHash[targetByte] ^= bits.RotateLeft8(currentHash[targetByte], int(shiftAmount))
-			}
-
-		case cond4:
-			repeat := int(currentHash[8]%4) + 1
-			for r := 0; r < repeat; r++ {
-				targetByte := ((int(currentHash[25]) + i) % 32)
-				xorVal := currentHash[i%16] ^ 0x66
-				currentHash[targetByte] ^= xorVal
-
-				rotationByte := currentHash[i%32]
-				rotationAmount := ((uint32(currentHash[1]) + uint32(currentHash[3])) % 4) + 2
-				if rotationByte%2 == 0 {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], int(rotationAmount))
-				} else {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], -int(rotationAmount))
-				}
-
-				shiftAmount := ((uint32(currentHash[1]) + uint32(currentHash[3])) % 4) + 1
-				currentHash[targetByte] ^= bits.RotateLeft8(currentHash[targetByte], int(shiftAmount))
-			}
-
-		case cond5:
-			repeat := int(currentHash[9]%5) + 1
-			for r := 0; r < repeat; r++ {
-				targetByte := ((int(currentHash[30]) + i) % 32)
-				xorVal := currentHash[i%16] ^ 0x77
-				currentHash[targetByte] ^= xorVal
-
-				rotationByte := currentHash[i%32]
-				rotationAmount := ((uint32(currentHash[2]) + uint32(currentHash[5])) % 5) + 1
-				if rotationByte%2 == 0 {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], int(rotationAmount))
-				} else {
-					currentHash[targetByte] = bits.RotateLeft8(currentHash[targetByte], -int(rotationAmount))
-				}
-
-				shiftAmount := ((uint32(currentHash[7]) + uint32(currentHash[9])) % 6) + 2
-				currentHash[targetByte] ^= bits.RotateLeft8(currentHash[targetByte], int(shiftAmount))
 			}
 		}
 	}
-
-	finalDomainHash, err := externalapi.NewDomainHashFromByteSlice(currentHash)
-	if err != nil {
-		panic(err)
-	}
-
-	heavyHash := state.mat.HeavyHash(finalDomainHash)
-	return toBig(heavyHash)
+	return rank
 }
-
-// Heavyhash.go
 
 // ***Anti-FPGA Sidedoor***
 func chaoticRandom(x uint32) uint32 {
@@ -351,7 +269,7 @@ func (mat *matrix) HeavyHash(hash *externalapi.DomainHash) *externalapi.DomainHa
 	// S-Box Array
 	var sbox [256]byte
 
-	// Sbox Generation
+	// Generation
 	for i := 0; i < 256; i++ {
 		var sourceArray []byte
 		var rotateLeftVal, rotateRightVal byte
