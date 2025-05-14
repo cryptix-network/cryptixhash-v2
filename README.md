@@ -1,18 +1,3 @@
-## TODO
-
-
-- GPU Miner / CUDA ✅
-
-- CPU Miner  ✅
-
-- Rust Node ✅
-
-- Miningcore ✅
-
-- Go Node 🔄
-
-- Stratum Bridge 🔄
-
 
 -----
 
