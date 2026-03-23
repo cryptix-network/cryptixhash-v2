@@ -1,3 +1,7 @@
+
+// Please note: This is a non-optimized version of OX8. Please check the Rust file for an optimized version.
+
+
 #include<stdint.h>
 #include <assert.h>
 #include "keccak-tiny.c"
@@ -603,31 +607,3 @@ extern "C" {
         }
     }
 }
-
-/*
-// Sinusoidal (It needs to be tested in the testnet first due to arch rounding errors)
-__device__ __inline__ void sinusoidal_multiply(uint8_t sinus_in, uint8_t &sinus_out) {
-    uint8_t left = (sinus_in >> 4) & 0x0F;  
-    uint8_t right = sinus_in & 0x0F;   
-
-    for (int i = 0; i < 16; i++) {
-        uint8_t temp = right;
-        right = (left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F; 
-        left = temp;
-    }
-
-    uint8_t complex_op = (left * right + 97) & 0xFF;  
-    uint8_t nonlinear_op = (complex_op ^ (right >> 4) ^ (left * 11)) & 0xFF;
-
-    uint16_t sinus_in_u16 = static_cast<uint16_t>(sinus_in); 
-    float angle = (sinus_in_u16 % 360) * (3.14159265359f / 180.0f);
-    float sin_value = __sinf(angle);  
-    uint8_t sin_lookup = static_cast<uint8_t>(fabsf(sin_value) * 255.0f); 
-
-    uint8_t modulated_value = (sin_lookup ^ (sin_lookup >> 3) ^ (sin_lookup << 1) ^ 0xA5) & 0xFF;
-    uint8_t sbox_val = ((modulated_value ^ (modulated_value >> 4)) * 43 + 17) & 0xFF;
-    uint8_t obfuscated = ((sbox_val >> 2) | (sbox_val << 6)) ^ 0xF3 ^ 0xA5;
-
-    sinus_out = ((obfuscated ^ (sbox_val * 7) ^ nonlinear_op) + 0xF1) & 0xFF;
-}
-*/

@@ -1,3 +1,5 @@
+// Please note: This is a non-optimized version of OX8. Please check the Rust file for an optimized version.
+
 func (state *State) CalculateProofOfWorkValue() *big.Int {
 	writer := hashes.NewPoWHashWriter()
 	writer.InfallibleWrite(state.prePowHash.ByteSlice())

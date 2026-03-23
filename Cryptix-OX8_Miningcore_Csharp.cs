@@ -1,3 +1,6 @@
+// Please note: This is a non-optimized version of OX8. Please check the Rust file for an optimized version.
+
+
 using System;
 using System.IO;
 using System.Linq;
@@ -910,31 +913,3 @@ public static class OctonionMathExtensions
         return (byte)((a * b) & 0xFF);
     }
 }
-
-    /*
-    // Sinusoidal Multiply (Tested in Testnet due to architecture rounding errors)
-    static void SinusoidalMultiply(byte sinusIn, ref byte sinusOut) {
-        byte left = (byte)((sinusIn >> 4) & 0x0F);
-        byte right = (byte)(sinusIn & 0x0F);
-
-        for (int i = 0; i < 16; i++) {
-            byte temp = right;
-            right = (byte)((left ^ ((right * 31 + 13) & 0xFF) ^ (right >> 3) ^ (right * 5)) & 0x0F);
-            left = temp;
-        }
-
-        byte complexOp = (byte)((left * right + 97) & 0xFF);
-        byte nonlinearOp = (byte)((complexOp ^ (right >> 4) ^ (left * 11)) & 0xFF);
-
-        ushort sinusInU16 = (ushort)sinusIn;
-        float angle = (sinusInU16 % 360) * (float)(Math.PI / 180.0f);
-        float sinValue = (float)Math.Sin(angle);
-        byte sinLookup = (byte)(Math.Abs(sinValue) * 255.0f);
-
-        byte modulatedValue = (byte)((sinLookup ^ (sinLookup >> 3) ^ (sinLookup << 1) ^ 0xA5) & 0xFF);
-        byte sboxVal = (byte)((modulatedValue ^ (modulatedValue >> 4)) * 43 + 17);
-        byte obfuscated = (byte)(((sboxVal >> 2) | (sboxVal << 6)) ^ 0xF3 ^ 0xA5);
-
-        sinusOut = (byte)((obfuscated ^ (sboxVal * 7) ^ nonlinearOp + 0xF1) & 0xFF);
-    }
-    */
