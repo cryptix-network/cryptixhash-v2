@@ -102,7 +102,8 @@ This represents a novel direction in hashing, combining abstract algebra and phy
 - Cuda (C++)
 - OpenCL (C)
 - Go  
-- C#  
+- C#
+- WASM
 
 ---
 
