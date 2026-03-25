@@ -98,14 +98,14 @@ __constant uint KECCAK_RHO[25] = {
     18, 2, 61, 56, 14
 };
 
-// In-place Rho/Pi traversal order (lane indices) for the alternate Keccak path.
+
 __constant uint KECCAK_PI_LANES[24] = {
     10U, 7U, 11U, 17U, 18U, 3U, 5U, 16U,
     8U, 21U, 24U, 4U, 15U, 23U, 19U, 13U,
     12U, 2U, 20U, 14U, 22U, 9U, 6U, 1U
 };
 
-// Rotation offsets paired with KECCAK_PI_LANES for in-place Rho/Pi.
+
 __constant uint KECCAK_RHO_PI_ROT[24] = {
     1U, 3U, 6U, 10U, 15U, 21U, 28U, 36U,
     45U, 55U, 2U, 14U, 27U, 41U, 56U, 8U,
@@ -122,7 +122,7 @@ __constant uint BLAKE3_MSG_PERMUTATION[16] = {
     1, 11, 12, 5, 9, 14, 15, 8
 };
 
-// Precomputed output of anti_fpga_hash(chaotic_random(x)) & 0xFF for x in [0..255].
+
 __constant uchar AFTER_COMP_LUT[256] = {
     0x75, 0x7C, 0xEB, 0x87, 0x24, 0xE7, 0x3D, 0x07, 0x48, 0x32, 0xB2, 0xEE, 0xEF, 0x97, 0xC2, 0x2B,
     0xE9, 0x4B, 0xE2, 0xAF, 0x2F, 0xF3, 0x19, 0xE7, 0x83, 0x94, 0xB9, 0x4B, 0x09, 0x78, 0x95, 0x69,
@@ -180,7 +180,7 @@ inline ulong mul64_parts_by_u32(uint a_lo, uint a_hi, uint b32) {
     return ((ulong)lo_lo) | ((ulong)upper << 32);
 }
 
-// Equivalent to (a * b) modulo 2^64 for b in [0..255], but uses 32-bit ops.
+
 inline ulong mul64_by_u8(ulong a, uchar b) {
     uint a_lo = (uint)a;
     uint a_hi = (uint)(a >> 32);
@@ -310,7 +310,7 @@ inline void keccak_f1600(ulong st[25]) {
         st[19] ^= d4;
         st[24] ^= d4;
 
-        // Rho + Pi with fixed destinations (avoids modulo arithmetic in hot path).
+
         b[0] = st[0];
         b[10] = rotl64(st[1], 1U);
         b[20] = rotl64(st[2], 62U);
@@ -337,7 +337,7 @@ inline void keccak_f1600(ulong st[25]) {
         b[19] = rotl64(st[23], 56U);
         b[4] = rotl64(st[24], 14U);
 
-        // Chi (row-wise, modulo-free indexing).
+   
         st[0] = b[0] ^ ((~b[1]) & b[2]);
         st[1] = b[1] ^ ((~b[2]) & b[3]);
         st[2] = b[2] ^ ((~b[3]) & b[4]);
@@ -414,7 +414,7 @@ inline void keccak_f1600(ulong st[25]) {
         st[19] ^= d4;
         st[24] ^= d4;
 
-        // In-place Rho/Pi: reduces temporary state pressure versus b[25].
+   
         ulong t = st[1];
         for (uint i = 0; i < 24; i++) {
             uint lane = KECCAK_PI_LANES[i];
@@ -423,7 +423,7 @@ inline void keccak_f1600(ulong st[25]) {
             t = next;
         }
 
-        // Chi row by row with only five lane temporaries.
+      
         for (uint row = 0; row < 25; row += 5U) {
             ulong r0 = st[row + 0U];
             ulong r1 = st[row + 1U];
