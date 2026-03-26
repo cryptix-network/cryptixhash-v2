@@ -1052,8 +1052,6 @@ pub struct Ox8OpenClJobConstants {
     pub pow_hash_state: [u64; 25],
 }
 
-/// Build OpenCL job constants from the same cached CPU structures used by workers.
-/// This guarantees identical matrix/pow-state derivation between CPU and OpenCL paths.
 pub fn build_opencl_job_constants(
     pre_pow_hash: &[u8; 32],
     timestamp: u64,
