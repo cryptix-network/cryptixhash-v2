@@ -104,6 +104,7 @@ This represents a novel direction in hashing, combining abstract algebra and phy
 - Go  
 - C#
 - WASM
+- Javascript
 
 ---
 
